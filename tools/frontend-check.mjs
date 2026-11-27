@@ -13,7 +13,7 @@ const now = Date.now(), stamp = new Date(now).toISOString();
 const task = { id: 'example-task', title: 'Director task with a readable title', status: 'cancelled', role: 'orchestrator', kind: 'code', provider: 'codex', ranOn: 'codex', model: 'example-model', cwd: '/workspace/git/example-task', createdAt: stamp, startedAt: stamp, endedAt: stamp, note: 'Stopped with its goal.' };
 const runningTask = { ...task, id: 'running-task', title: 'Running task example', status: 'running', role: 'worker', endedAt: null };
 const session = { id: 'example-session', provider: 'codex', title: 'Example session', model: 'example-model', cwd: '/workspace/project', mtime: now, live: 'recent', liveWhy: 'Recent activity', archived: false };
-const sessions = [session, ...Array.from({ length: 26 }, (_, i) => ({ ...session, id: `finished-${i}`, title: `Finished session ${i}`, live: 'finished', mtime: now - i - 1000 }))];
+const sessions = [session, { ...session, id: 'auto-done-0', title: 'Auto archived session', live: 'finished', archived: true, autoArchived: true, mtime: now - 60000 }, ...Array.from({ length: 26 }, (_, i) => ({ ...session, id: `finished-${i}`, title: `Finished session ${i}`, live: 'finished', mtime: now - i - 1000 }))];
 const archivedFixture = new Set(), archiveRequests = [];
 const pullRequest = { number: 12, title: 'A pull request with a descriptive title', url: 'https://example.com/pr/12', head: 'example-branch', headSha: '1234567', headShaFull: '123456789', evidence: { ci: 'passing', review: 'approved' }, ci: { state: 'passing', pass: 1, fail: 0, pending: 0 }, updatedAt: stamp };
 let orch = { orchestrator: { mode: 'orchestrated', provider: 'codex' }, team: [], workerModels: {}, efforts: { codex: ['low', 'high'] } };
@@ -24,7 +24,7 @@ const reply = pathname => ({
   '/director': { goals: [], needsYou: [], dispatcher: { lastTick: now }, config: {}, machines: null, github: { repo: 'example/repo', at: stamp, prs: [pullRequest] } },
   '/orch': orch,
   '/budget': { providers: { freebuff: { enabled: true, hoursLeft: '12:00', models: [{ id: 'fb-example', name: 'Example Freebuff', workHoursLeft: 6 }] }, codex: { enabled: true, installed: true, running: 0, max: 2, windows: [{ minutes: 10080, usedPercent: 45, stale: false }] }, cursor: { enabled: true }, opencode: { enabled: true, windows: [{ name: 'rolling', usedPercent: 30 }] } } },
-  '/sessions': sessions.map(s => ({ ...s, archived: archivedFixture.has(s.id) })), '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }] },
+  '/sessions': sessions.map(s => ({ ...s, archived: Boolean(s.archived || archivedFixture.has(s.id)) })), '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }] },
   '/archive/sessions': [{ ...session, archived: true }], '/ext/list': { files: [], stash: { ok: true }, rows: [{ section: 'hooks', id: 'example-hook', rev: '1', on: true, name: 'Example hook', app: 'Codex', what: 'Runs before a tool starts.', source: 'Example settings', path: '/workspace/settings' }] },
   '/debug': [{ group: 'System', name: 'Example', ok: false, detail: 'Could not read /workspace/example-with-a-long-name/configuration.json', fix: 'Check the example configuration.' }],
   '/spawn-check': { clis: [{ pid: 1234, model: 'DeepSeek V4.1 Flash', minsLeft: 45, working: [], queued: [], pending: false }], max: 5, why: 'CLI pid 1234 is idle with 45m left.' },
@@ -177,21 +177,27 @@ try {
         await page.locator('#tabs [data-t="sessions"]').click();
         await page.locator('.session-table-wrap').waitFor({ state: 'visible' });
         await page.locator('[data-session-provider="claude"]').click();
-        await page.getByText('No sessions match these filters.').waitFor({ state: 'visible' });
+        await page.getByText('No active sessions match these filters.').waitFor({ state: 'visible' });
         assert.equal(await page.evaluate(() => document.activeElement.dataset.sessionProvider), 'claude');
         assert.equal(await page.locator('#session-state option[value="unknown"]').count(), 0);
         await page.locator('[data-session-provider="freebuff"]').click();
         await page.locator('.fb-usage-strip .fb-cli-chip').getByText(/45m left/).waitFor({ state: 'visible' });
         await page.locator('[data-session-provider="team"]').click();
-        await page.locator('.team-view').getByText('Wave check-in sent to team.').waitFor({ state: 'visible' });
+        await page.locator('.team-view .team-preview').getByText('Wave check-in sent to team.').waitFor({ state: 'visible' });
         const teamInput = page.locator('#team-note');
         await teamInput.fill('Director reply check');
         await teamInput.press('Enter');
-        await page.locator('.team-view').getByText('Director reply check').waitFor({ state: 'visible' });
+        await page.locator('.team-view .team-preview').getByText('Director reply check').waitFor({ state: 'visible' });
         assert.equal(await page.locator('#team-note').inputValue(), '');
+        await page.locator('.team-row summary').first().click();
+        await page.locator('.team-row[open] .team-detail').waitFor({ state: 'visible' });
         await page.locator('[data-session-provider="all"]').click();
+        assert.equal(await page.locator('.srow[data-id="auto-done-0"]').count(), 0);
+        await page.locator('[data-tog="1"]').click();
+        await page.locator('.srow[data-id="auto-done-0"] [data-a="unarchive"]').waitFor({ state: 'visible' });
+        await page.locator('[data-tog="1"]').click();
         await page.locator('#session-state').selectOption('finished');
-        assert.match(await page.locator('.sess-all .archive-pager span').innerText(), /26 matching · page 1 of 2/);
+        assert.match(await page.locator('.sess-all .archive-pager span').innerText(), /27 matching · page 1 of 2/);
         await page.locator('.srow[data-id="finished-0"] .sst').getByText('done', { exact: true }).waitFor({ state: 'visible' });
         await page.locator('.srow[data-id="finished-0"] [data-session-select]').check();
         await page.locator('[data-session-page="next"]').click();
@@ -209,7 +215,7 @@ try {
         await page.locator('[data-clear-selection]').click();
         await page.locator('#session-state').selectOption('recent');
         await page.locator('#session-search').fill('no matching session');
-        await page.getByText('No sessions match these filters.').waitFor({ state: 'visible' });
+        await page.getByText('No active sessions match these filters.').waitFor({ state: 'visible' });
         await page.locator('#session-search').fill('Example session');
         await page.locator('.session-open').first().click();
         await page.getByRole('dialog').waitFor({ state: 'visible' });

@@ -1,11 +1,12 @@
 (()=>{
 const LABEL={running:'running (verified)',reported:'in progress',recent:'recent activity',idle:'idle',stopped:'stopped',finished:'done'},DOT={running:'live',reported:'idle',recent:'idle',idle:'idle',stopped:'err',finished:'done'};
-const WHY={reported:'Active turn reported; process not directly confirmed.',running:'Its process is alive and active.',recent:'It wrote in the last 2 minutes.',idle:'No recent activity; session is idle or closed.',stopped:'Its Command Center task stopped or failed.',finished:'This run completed.'};
+const WHY={reported:'Active turn reported; process not directly confirmed.',running:'Its process is alive and active.',recent:'It wrote in the last 2 minutes.',idle:'No recent activity; session is idle or closed.',stopped:'Its Command Center task stopped or failed.',finished:'Completed and auto-archived.'};
 const dot=(s,why)=>'<span class="sdot '+(DOT[s]||'idle')+'" title="'+esc(why||WHY[s]||'')+'"></span>'+(LABEL[s]||'idle');
 const last2=p=>String(p||'').split(/[\\/]/).filter(Boolean).slice(-2).join('/')||'?';
 const stamp=t=>{const d=new Date(t);return isNaN(d)?'?':d.toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})};
 const recent=ms=>ms?(Date.now()-ms<864e5?ago(ms):stamp(ms)):'?';
 const minsStr=m=>m>=60?Math.floor(m/60)+'h '+(m%60)+'m':m+'m';
+const oneLine=s=>String(s||'').replace(/\s+/g,' ').trim();
 const opened=new Set(),expanded=new Set(),selected=new Set();let bulkBusy=false,showArch=false,sessionProvider='all',sessionState='all',sessionQuery='',sessionPage=0,teamFilter='all',teamSearch='',teamDraft='';
 const SESSION_PAGE_SIZE=25,sessionKey=s=>JSON.stringify([s.provider,s.id]);
 let cur=null,timer=0,token=0,lastRaw='',opener=null,lastList=null,lastTasks=null,lastExtras=null;
@@ -89,7 +90,7 @@ function fbUsageStrip(fb,sp){
   return '<span class="fb-cli-chip'+(idle&&!c.pending?' is-idle':'')+'" title="'+esc(c.working?.length?'Working: '+c.working.join(', '):'Idle and ready for next Freebuff task')+'"><span class="sdot '+(idle&&!c.pending?'live':'idle')+'"></span><b>'+esc(c.model||'Freebuff')+'</b> · '+esc(leftTxt)+' · '+tag+(c.pid?' (pid '+esc(c.pid)+')':'')+'</span>';
  }).join(''):'<span class="m">No active 1-hour Freebuff CLI right now.</span>';
  const nextWhy=sp?.why?'<div class="fb-why">'+esc(sp.why)+'</div>':'';
- return '<div class="fb-usage-strip"><div class="fb-usage-head"><div><b>Freebuff usage &amp; 1-hour session reuse</b><span>'+daily+' · '+clis.length+' / '+(sp?.max??'?')+' active CLIs</span></div><span class="fb-policy">Reuses active 1h CLIs until hour ends unless parallel work needs another</span></div><div class="fb-clis">'+chips+'</div>'+nextWhy+'</div>';
+ return '<div class="fb-usage-strip"><div class="fb-usage-head"><div><b>Freebuff 1-hour pool</b><span>'+daily+' · '+clis.length+' / '+(sp?.max??'?')+' active</span></div><span class="fb-policy">Reuses active 1h CLIs until hour ends</span></div><div class="fb-clis">'+chips+'</div>'+nextWhy+'</div>';
 }
 
 function teamViewHtml(feed){
@@ -101,48 +102,51 @@ function teamViewHtml(feed){
   if(q&&![x.from,x.to,x.provider,x.title,x.text,x.taskId].some(v=>String(v||'').toLowerCase().includes(q)))return false;
   return true;
  });
- const cards=rows.length?rows.map(x=>{
-  const badge='<span class="tk-badge p-'+esc(x.provider||'team')+'">'+esc(AGENT[x.provider]||x.provider||'team')+'</span>';
-  const kindCls=x.kind==='board'?'k-board':x.kind==='dispatch'?'k-dispatch':'k-report';
-  const statusPill=x.status?'<span class="team-status s-'+esc(x.status)+'">'+esc(x.status)+'</span>':'';
-  const openBtn=x.sessionRef?'<button type="button" class="pill" data-open-session="'+esc(x.sessionRef.provider)+':'+esc(x.sessionRef.id)+'">Open session</button>':'';
+ const listHtml=rows.length?'<div class="team-list">'+rows.map(x=>{
+  const p=x.provider||'team';
+  const lbl=AGENT[p]||p;
   const ts=Date.parse(x.at||'');
-  const t=String(x.text||''),long=t.length>500&&!expanded.has('team:'+x.id);
-  return '<article class="team-msg '+kindCls+'"><header>'+badge+'<span class="team-route"><b>'+esc(x.from)+'</b> → <span>'+esc(x.to)+'</span></span>'+statusPill+(x.taskId?'<code>'+esc(x.taskId)+'</code>':'')+'<span class="team-at">'+(ts?esc(recent(ts)):'?')+'</span>'+openBtn+'</header>'
-   +(x.title&&x.kind!=='board'?'<div class="team-title">'+esc(x.title)+'</div>':'')
-   +'<div class="team-body'+(long?' long':'')+'">'+md(t)+'</div>'
-   +(long?'<button type="button" class="pill team-more" data-team-expand="'+esc(x.id)+'">Show full message</button>':'')+'</article>';
- }).join(''):'<div class="empty">No team communication matches this filter.</div>';
+  const open=expanded.has('team:'+x.id);
+  const preview=oneLine(x.title&&x.kind!=='board'?x.title+' — '+x.text:x.text);
+  const openBtn=x.sessionRef?'<button type="button" class="pill team-open" data-open-session="'+esc(x.sessionRef.provider)+':'+esc(x.sessionRef.id)+'">Open session</button>':'';
+  const statusPill=x.status?'<span class="team-status s-'+esc(x.status)+'">'+esc(x.status)+'</span>':'';
+  return '<details class="team-row" data-team-id="'+esc(x.id)+'"'+(open?' open':'')+'>'
+   +'<summary><span class="team-agent p-'+esc(p)+'"><i></i>'+esc(lbl)+'</span><span class="team-route">'+esc(x.from)+' → '+esc(x.to)+'</span><span class="team-preview">'+esc(preview)+'</span><span class="team-at">'+(ts?esc(recent(ts)):'?')+'</span></summary>'
+   +'<div class="team-detail"><div class="team-meta">'+statusPill+(x.taskId?'<code>'+esc(x.taskId)+'</code>':'')+(x.title&&x.kind!=='board'?'<span>'+esc(x.title)+'</span>':'')+openBtn+'</div><div class="team-body">'+md(String(x.text||''))+'</div></div>'
+   +'</details>';
+ }).join('')+'</div>':'<div class="empty">No team communication matches this filter.</div>';
  return '<div class="team-view">'
-  +'<form id="team-form" class="team-compose"><input id="team-note" type="text" placeholder="Post a note to the team board (visible to Director and all active workers)…" value="'+esc(teamDraft)+'"><button type="submit" class="pill primary">Send to team</button></form>'
+  +'<form id="team-form" class="team-compose"><input id="team-note" type="text" placeholder="Message the team board (Enter to send)…" value="'+esc(teamDraft)+'"><button type="submit" class="pill primary">Send</button></form>'
   +'<div class="team-toolbar"><div class="team-filters">'
-   +[['all','All talk ('+raw.length+')'],['board','Team board'],['tasks','Dispatches & reports']].map(([id,lbl])=>'<button type="button" class="pill'+(teamFilter===id?' on':'')+'" data-team-filter="'+id+'">'+esc(lbl)+'</button>').join('')
-  +'</div><input id="team-search" type="search" placeholder="Filter by agent, task id or text" value="'+esc(teamSearch)+'"><button type="button" class="pill" data-team-refresh="1">Refresh</button></div>'
-  +'<div class="team-feed">'+cards+'</div></div>';
+   +[['all','All ('+raw.length+')'],['board','Board'],['tasks','Tasks & reports']].map(([id,lbl])=>'<button type="button" class="pill'+(teamFilter===id?' on':'')+'" data-team-filter="'+id+'">'+esc(lbl)+'</button>').join('')
+  +'</div><input id="team-search" type="search" placeholder="Filter by agent, task or message" value="'+esc(teamSearch)+'"><button type="button" class="pill" data-team-refresh="1">Refresh</button></div>'
+  +listHtml+'</div>';
 }
 
 let gen=0,sessionComposing=false;
 function renderSessions(el,list,tasks,extras){
  lastList=list;lastTasks=tasks;lastExtras=extras;
  const fbUsage=extras?.fbUsage||null,sp=extras?.spawn||null,feed=extras?.feed||null;
- const live=(list||[]).filter(s=>s.id&&!s.archived),n=k=>live.filter(s=>(s.live||'idle')===k).length,top=el.scrollTop,left=el.querySelector('.session-table-wrap')?.scrollLeft||0;
+ const live=(list||[]).filter(s=>s.id&&!s.archived),arch=(list||[]).filter(s=>s.id&&s.archived).length,n=k=>live.filter(s=>(s.live||'idle')===k).length,top=el.scrollTop,left=el.querySelector('.session-table-wrap')?.scrollLeft||0;
  const fe=document.activeElement,taskFocus=el.contains(fe)?fe.closest('[data-open-director]')?.dataset.taskId:null,providerFocus=el.contains(fe)?fe.closest('[data-session-provider]')?.dataset.sessionProvider:null,searching=fe?.id==='session-search'||fe?.id==='team-search',searchId=searching?fe.id:null,cursor=searching?fe.selectionStart:null,control=el.contains(fe)&&fe.id==='session-state'?fe.id:'',bulkFocus=el.contains(fe)&&fe.matches('[data-select-page]')?'page':el.contains(fe)&&fe.matches('[data-archive-selected]')?'archive':null,fr=el.contains(fe)&&fe.closest('.srow'),fk=fr&&[fr.dataset.p,fr.dataset.id,fe.dataset.a,fe.hasAttribute('data-session-open'),fe.hasAttribute('data-session-select')];
  const available=new Set((list||[]).filter(s=>s.id&&!s.archived).map(sessionKey));if(list)for(const k of selected)if(!available.has(k))selected.delete(k);
- const q=sessionQuery.trim().toLowerCase(),rows=(list||[]).filter(s=>s.id&&(showArch||!s.archived)&&(sessionProvider==='all'||s.provider===sessionProvider)&&(sessionState==='all'||(s.live||'idle')===sessionState)&&(!q||[s.title,s.id,s.cwd,s.model].some(v=>String(v||'').toLowerCase().includes(q)))).sort((a,b)=>(RANK[a.live]??4)-(RANK[b.live]??4)||b.mtime-a.mtime);
- const pages=Math.max(1,Math.ceil(rows.length/SESSION_PAGE_SIZE));sessionPage=Math.min(sessionPage,pages-1);const visible=rows.slice(sessionPage*SESSION_PAGE_SIZE,(sessionPage+1)*SESSION_PAGE_SIZE),arch=(list||[]).filter(s=>s.id&&s.archived).length;
+ const q=sessionQuery.trim().toLowerCase(),rows=(list||[]).filter(s=>s.id&&(showArch||sessionState==='finished'||!s.archived)&&(sessionProvider==='all'||s.provider===sessionProvider)&&(sessionState==='all'||(s.live||'idle')===sessionState)&&(!q||[s.title,s.id,s.cwd,s.model].some(v=>String(v||'').toLowerCase().includes(q)))).sort((a,b)=>(RANK[a.live]??4)-(RANK[b.live]??4)||b.mtime-a.mtime);
+ const pages=Math.max(1,Math.ceil(rows.length/SESSION_PAGE_SIZE));sessionPage=Math.min(sessionPage,pages-1);const visible=rows.slice(sessionPage*SESSION_PAGE_SIZE,(sessionPage+1)*SESSION_PAGE_SIZE);
  const tabs=[['all','All'],...Object.entries(AGENT),['team','Team']];
- el.innerHTML='<div class="pg sess-all"><div class="cc-pagehead"><div><div class="cc-eyebrow">WORKSPACE / ACTIVITY</div><h2>Sessions</h2><p class="cc-lead">Live and historical sessions linked to Command Center tasks, Freebuff hour reuse, and team communication.</p></div><div class="cc-count"><b>'+live.length+'</b><span>visible sessions</span></div></div>'
-  +'<div class="session-summary"><div><b>'+n('running')+'</b><span>running (verified)</span></div><div><b>'+n('reported')+'</b><span>in progress</span></div><div><b>'+n('recent')+'</b><span>recent activity</span></div><div><b>'+n('idle')+'</b><span>idle</span></div><div><b>'+n('stopped')+'</b><span>stopped</span></div><div><b>'+n('finished')+'</b><span>done</span></div><p>Running means a live process was verified. Task completion and failures are synced directly from Command Center so no session is left unknown.</p></div>'
-  +'<div class="session-current"><div><b>Command Center tasks running now</b><span>Live tasks managed by this panel</span></div>'+(!tasks?'<p>Could not load current tasks.</p>':tasks.length?tasks.map(t=>'<button type="button" class="session-task" data-open-director data-task-id="'+esc(t.id)+'"><span class="tk-badge p-'+esc(t.ranOn||t.provider)+'">'+esc(AGENT[t.ranOn||t.provider]||t.ranOn||t.provider)+'</span><span>'+esc(t.title||t.id)+'</span><small>'+esc(t.status)+'</small></button>').join(''):'<p>No Command Center tasks are running.</p>')+'</div>'
+ const activeHtml=!tasks?'<div class="session-current"><div><b>Active tasks</b><span>Could not load current tasks.</span></div></div>':tasks.length?'<div class="session-current"><div><b>Active tasks ('+tasks.length+')</b><span>Click to open Director</span></div>'+tasks.map(t=>'<button type="button" class="session-task" data-open-director data-task-id="'+esc(t.id)+'"><span class="tk-badge p-'+esc(t.ranOn||t.provider)+'">'+esc(AGENT[t.ranOn||t.provider]||t.ranOn||t.provider)+'</span><span>'+esc(t.title||t.id)+'</span><small>'+esc(t.status)+'</small></button>').join('')+'</div>':'';
+ el.innerHTML='<div class="pg sess-all"><div class="cc-pagehead"><div><div class="cc-eyebrow">WORKSPACE / ACTIVITY</div><h2>Sessions</h2><p class="cc-lead">Active agent sessions, Freebuff hour reuse, and team communication. Done runs are auto-archived.</p></div><div class="cc-count"><b>'+live.length+'</b><span>active sessions</span></div></div>'
+  +'<div class="session-summary"><div><b>'+n('running')+'</b><span>running</span></div><div><b>'+n('reported')+'</b><span>in progress</span></div><div><b>'+n('recent')+'</b><span>recent</span></div><div><b>'+n('idle')+'</b><span>idle</span></div><div><b>'+n('stopped')+'</b><span>stopped</span></div><div><b>'+arch+'</b><span>archived</span></div></div>'
+  +activeHtml
   +'<nav class="session-tabs" aria-label="Session providers">'+tabs.map(([id,label])=>'<button type="button" class="pill'+(sessionProvider===id?' on':'')+'" data-session-provider="'+esc(id)+'" aria-pressed="'+(sessionProvider===id)+'">'+esc(label)+'</button>').join('')+'</nav>'
   +fbUsageStrip(fbUsage,sp)
   +(sessionProvider==='team'?teamViewHtml(feed)
    :'<div class="session-toolbar"><label><span>Search</span><input id="session-search" type="search" placeholder="Title, model or folder" value="'+esc(sessionQuery)+'"></label><label><span>Activity</span><select id="session-state">'+[['all','All states'],['running','Running (verified)'],['reported','In progress'],['recent','Recent activity'],['idle','Idle'],['stopped','Stopped'],['finished','Done']].map(([id,label])=>'<option value="'+id+'"'+(sessionState===id?' selected':'')+'>'+label+'</option>').join('')+'</select></label>'+(arch?'<button class="pill" data-tog="1">'+(showArch?'Hide':'Show')+' archived ('+arch+')</button>':'')+'</div>'
    +'<div class="session-bulk"><label><input type="checkbox" data-select-page'+(visible.some(s=>!s.archived)&&visible.filter(s=>!s.archived).every(s=>selected.has(sessionKey(s)))?' checked':'')+(bulkBusy||!visible.some(s=>!s.archived)?' disabled':'')+'> Select this page</label><button type="button" class="pill" data-archive-selected'+(bulkBusy||!list||!selected.size?' disabled':'')+'>'+(bulkBusy?'Archiving...':'Archive selected ('+selected.size+')')+'</button><button type="button" class="pill" data-clear-selection'+(bulkBusy||!selected.size?' disabled':'')+'>Clear selection</button><span>Selection includes all pages and filters.</span></div>'
-   +(list===null?'<div class="empty">Could not load sessions.</div>':(list||[]).filter(s=>!s.id).map(s=>'<div class="'+(s.note?'pg-hint':'tk-warn')+'">'+esc(s.title)+'</div>').join('')+(visible.length?'<div class="session-scroll-hint">Scroll horizontally to see all session actions.</div><div class="session-table-wrap">'+window.sessTable(visible)+'</div>':'<div class="empty">No sessions match these filters.</div>'))
+   +(list===null?'<div class="empty">Could not load sessions.</div>':(list||[]).filter(s=>!s.id).map(s=>'<div class="'+(s.note?'pg-hint':'tk-warn')+'">'+esc(s.title)+'</div>').join('')+(visible.length?'<div class="session-scroll-hint">Scroll horizontally to see all session actions.</div><div class="session-table-wrap">'+window.sessTable(visible)+'</div>':'<div class="empty">No active sessions match these filters.</div>'))
    +'<div class="archive-pager"><span>'+rows.length+' matching · page '+(sessionPage+1)+' of '+pages+'</span><button class="pill" data-session-page="prev"'+(sessionPage===0?' disabled':'')+'>Previous</button><button class="pill" data-session-page="next"'+(sessionPage+1>=pages?' disabled':'')+'>Next</button></div>')
   +'</div>';
  const root=el.firstChild,reload=()=>renderSessions(el,lastList,lastTasks,lastExtras);
+ root.addEventListener('toggle',e=>{const d=e.target;if(d?.classList?.contains('team-row')){const k='team:'+d.dataset.teamId;d.open?expanded.add(k):expanded.delete(k)}},true);
  root.onsubmit=async e=>{
   if(e.target.id!=='team-form')return;
   e.preventDefault();
@@ -152,18 +156,17 @@ function renderSessions(el,list,tasks,extras){
   if(r.ok){teamDraft='';if(input)input.value='';await PAGES.sessions(el,true);if(wasFocused)el.querySelector('#team-note')?.focus()}else alert('Could not post to team board.');
  };
  root.onclick=async e=>{
-  if(e.target.closest('[data-archive-selected]')){if(bulkBusy||!selected.size)return;const chosen=(list||[]).filter(s=>selected.has(sessionKey(s))&&!s.archived);if(!chosen.length)return;if(!confirm('Archive '+chosen.length+' selected session'+(chosen.length===1?'':'s')+'?'))return;bulkBusy=true;gen++;reload();const failed=[];for(const s of chosen){try{const r=await fetch('/session/meta?p='+enc(s.provider)+'&id='+enc(s.id)+'&a=archive',{method:'POST'});if(!r.ok){const x=await r.json().catch(()=>({}));failed.push((s.title||s.id)+': '+(x.error||'Could not archive'))}else selected.delete(sessionKey(s))}catch{failed.push((s.title||s.id)+': Could not reach the panel')}}bulkBusy=false;if(tab==='sessions')await PAGES.sessions(el);if(failed.length)alert('Some sessions could not be archived:\n'+failed.join('\n'));return}
+  if(e.target.closest('[data-archive-selected]')){if(bulkBusy||!selected.size)return;const chosen=(list||[]).filter(s=>selected.has(sessionKey(s))&&!s.archived);if(!chosen.length)return;if(!confirm('Archive '+chosen.length+' selected session'+(chosen.length===1?'':'s')+'?'))return;bulkBusy=true;gen++;reload();const failed=[];for(const s of chosen){try{const r=await fetch('/session/meta?p='+enc(s.provider)+'&id='+enc(s.id)+'&a=archive',{method:'POST'});if(!r.ok){const x=await r.json().catch(()=>({}));failed.push((s.title||s.id)+': '+(x.error||'Could not archive'))}else selected.delete(sessionKey(s))}catch{failed.push((s.title||s.id)+': Could not reach the panel')}}bulkBusy=false;if(tab==='sessions')await PAGES.sessions(el,true);if(failed.length)alert('Some sessions could not be archived:\n'+failed.join('\n'));return}
   if(bulkBusy)return;
   if(e.target.closest('[data-clear-selection]')){selected.clear();reload();return}
   if(e.target.closest('[data-open-director]')){setTab('director');return}
   const tf=e.target.closest('[data-team-filter]');if(tf){teamFilter=tf.dataset.teamFilter;reload();return}
   if(e.target.closest('[data-team-refresh]')){PAGES.sessions(el,true);return}
-  const te=e.target.closest('[data-team-expand]');if(te){expanded.add('team:'+te.dataset.teamExpand);reload();return}
   const os=e.target.closest('[data-open-session]');if(os){const [p,...rest]=os.dataset.openSession.split(':');window.openSession(p,rest.join(':'));return}
   const provider=e.target.closest('[data-session-provider]');
-  if(provider){const prev=sessionProvider;sessionProvider=provider.dataset.sessionProvider;sessionPage=0;reload();el.querySelector('[data-session-provider="'+CSS.escape(sessionProvider)+'"]')?.focus();if(sessionProvider==='team'&&prev!=='team'&&!feed)PAGES.sessions(el);return}
+  if(provider){const prev=sessionProvider;sessionProvider=provider.dataset.sessionProvider;sessionPage=0;reload();el.querySelector('[data-session-provider="'+CSS.escape(sessionProvider)+'"]')?.focus();if(sessionProvider==='team'&&prev!=='team'&&!feed)PAGES.sessions(el,true);return}
   const b=e.target.closest('[data-session-page]');if(b){sessionPage+=b.dataset.sessionPage==='next'?1:-1;return reload()}
-  window.sessClick(e,list||[],()=>PAGES.sessions(el));
+  window.sessClick(e,list||[],()=>PAGES.sessions(el,true));
  };
  root.onchange=e=>{if(e.target.matches('[data-select-page]')){for(const s of visible.filter(s=>!s.archived))e.target.checked?selected.add(sessionKey(s)):selected.delete(sessionKey(s));reload();el.querySelector('[data-select-page]')?.focus({preventScroll:true});return}if(e.target.matches('[data-session-select]')){const row=e.target.closest('.srow'),s=visible.find(x=>x.id===row.dataset.id&&x.provider===row.dataset.p);if(s)e.target.checked?selected.add(sessionKey(s)):selected.delete(sessionKey(s));reload();el.querySelector('.srow[data-p="'+CSS.escape(row.dataset.p)+'"][data-id="'+CSS.escape(row.dataset.id)+'"] [data-session-select]')?.focus({preventScroll:true});return}if(e.target.id==='session-state')sessionState=e.target.value;else return;sessionPage=0;reload()};
  root.oninput=e=>{if(e.isComposing)return;if(e.target.id==='session-search'){sessionQuery=e.target.value;sessionPage=0;reload()}else if(e.target.id==='team-search'){teamSearch=e.target.value;reload()}else if(e.target.id==='team-note'){teamDraft=e.target.value}};

@@ -9,7 +9,7 @@ const { default: sessionAction } = await import('../lib/routes/sessions.mjs');
 const { default: archive } = await import('../lib/routes/archive.mjs');
 const { discovered } = await import('../lib/routes/director.mjs');
 const { sessionOrigin, sessionTaskResolver } = await import('../lib/session-origin.mjs');
-const { enrichSession } = await import('../lib/session-meta.mjs');
+const { enrichSession, decorate } = await import('../lib/session-meta.mjs');
 const { freebuffPlan, add: addTask, closeTask } = await import('../lib/tasks.mjs');
 const id = 'chat-2026-11-27T10-07-13.427Z';
 const session = { slug: id, title: 'Example', mtime: 1, queued: false, archived: false, steps: [] };
@@ -23,7 +23,9 @@ const request = async (action, sessionId = id) => {
 };
 try {
   assert.equal(await request('archive'), 200);
+  assert.equal(decorate('freebuff', [{ id, ended: true, mtime: 1 }])[0].archived, true);
   assert.equal(await request('unarchive'), 200);
+  assert.equal(Boolean(decorate('freebuff', [{ id, ended: true, mtime: 1 }])[0].archived), false);
   assert.equal(await request('delete', 'missing'), 404);
   await archive({ res: {}, u: { pathname: '/session' }, q: k => ({ p: 'freebuff', id })[k], send, loadSessions, worktree: () => '' });
   assert.equal(status, 200);
