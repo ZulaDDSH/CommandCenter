@@ -239,7 +239,10 @@ route `POST /director/stage` is the way to add an entry from a running panel.
   child can still be wrong about the world. Two panels on one folder still rely on `state/panel.lock`
   for who dispatches; the fence only guarantees that an outcome comes from the current lease holder.
   No work is dispatched to another machine yet, so the cross-machine case is designed but unexercised.
-   is still written whole, so the fence protects the closing task’s outcome, not two writers
+  `tasks.json` is still written whole, so the fence protects the closing task’s outcome, not two writers
   editing unrelated tasks at the same moment; that still needs one dispatcher per folder.
 - Next: remote dispatch would claim with this token, and the local panel would refuse to close what a
   peer holds.
+- CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45942636794 — success, `84 passed, 0 failed`
+  on `windows-latest`, for commit `3b2c669` (the fence and its tests). The only later change is this
+  line and the wording fix above it.
