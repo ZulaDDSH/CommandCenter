@@ -198,3 +198,6 @@ route `POST /director/stage` is the way to add an entry from a running panel.
 - Limitations: a local run cannot produce the 8.3 form, so CI is the only place that assertion is
   exercised against it.
 - Next: watch the re-run; a green run is the first CI-verified pass of the whole check.
+- CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45941431918 — success, `68 passed, 0 failed`
+  on `windows-latest`. This is the first CI-verified pass of the whole check, and it is the run that
+  proves the worktree path on a machine that is not this one.
