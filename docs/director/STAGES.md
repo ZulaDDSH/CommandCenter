@@ -119,3 +119,49 @@ route `POST /director/stage` is the way to add an entry from a running panel.
   soft path, noted on the task as `worktreeNote`).
 - Next: to get per-task worktrees back, make the project folder a git repository (or point
   `projectDir` at one).
+
+## 2026-11-27 — Stage 3: the project folder is a repository, so every task gets its own worktree
+
+- Goal: none (the isolation gap Stage 2a left open).
+- Exists: `config.json` pointed `projectDir` at `E:/Command Center` — a symlink to this app folder —
+  but the folder had no `.git`, so `lib/worktrees.mjs:prepare` refused it: every task ran in the one
+  shared app folder and only a `worktreeNote` said so. That is the duplicate-work and
+  conflicting-edit risk the task-ownership stage exists to prevent.
+- Changed:
+  - `.gitignore` (new): this PC's data and state — `config.json`, `tasks.json`, `tasks/`, `logs/`,
+    `reports/`, `board.jsonl`, `backups/`, `machines.json`, `goals.json`, `state/`, `trash/`,
+    `runtime/`, `session-meta.json*`, `disabled-extensions.json`, `.cc-install`,
+    `CommandCenter-*.zip`, `docs/AGENT-BRIEF-COMMON.md`, `.freebuff/` — plus `/git/`. The repository
+    holds the program; it never holds a machine's settings or a task's worktree.
+  - The app folder is now a git repository (`git init -b main`, one initial commit). No app file was
+    deleted or rewritten, and `config.json` still says `E:/Command Center`.
+  - `usage/freebuff-usage.ps1`: a stray UTF-8 BOM removed (three bytes). The file is otherwise pure
+    ASCII, so PowerShell reads it identically; the global pre-commit guard refuses BOMs.
+  - Source comments removed from the files this work added (`lib/director.mjs`, `lib/tasks.mjs`,
+    `lib/worktrees.mjs`, `lib/machines.mjs`, `lib/github.mjs`, `lib/routes/director.mjs`,
+    `lib/checks/director.mjs`, `tools/director-check.mjs`): the global pre-commit guard keeps
+    explanation in `docs/code-notes/<project>.md` and allows only single-line constraint comments
+    (`// invariant: …`) in source. Those explanations live in this file and in the code notes.
+  - `lib/director.mjs:snapshot`: every `agents` entry now carries `leaseOwner`, `leaseAt`,
+    `worktree`, `branch`, `role` and `root`, and a goal's own root task is included instead of being
+    filtered out, so the run holding a checkout is visible while it runs.
+  - `viewer/public/director.js`, `viewer/public/director.css`: the goal card shows, per agent, the
+    worktree and branch and the lease owner, and marks the goal's root run.
+  - `tools/director-check.mjs`: the copied app is now the project folder *and* the repository
+    (`initRepo` commits it), so worktrees must land in `<app>/git/<task-id>`. Four assertions would
+    fail a silent fallback: the worktree is never the project folder, the task carries no
+    `worktreeNote`, a task submitted in a folder that is *not* a repository still reports the
+    fallback, and `GET /director` must show that worktree together with the lease owner.
+- Evidence: `node tools/director-check.mjs` → 68 passed, 0 failed (exit 0). The run reports
+  `.../app/git/cc-mwyhidzs-v9p7` on branch `cc/cc-mwyhidzs-v9p7`, `git worktree list` knows it, the
+  main checkout is still clean, and the Director check reports
+  `.../app/git/cc-mwyhkcm9-e3c4 / DESKTOP-MAG3SI3:41252:t962py`. In the real folder, a worktree was
+  added through the symlink at `E:/Command Center/git/probe-…`, checked out the full app, reported
+  branch `cc/probe-…`, then was removed with its branch; `git status` stayed clean and
+  `git worktree list` shows only the main checkout again.
+- Limitations: the check proves the mechanism in a replica of the app — no real provider was run
+  against the real repository this turn, so the first real task will be the first live proof. The
+  repository has one commit and no remote, so the workflow has not run on it. Reports from tasks that
+  finished before Stage 2a remain in the retired folder and still do not appear as evidence.
+- Next: push the repository and run the check in the workflow; then one real task through a real
+  provider in `E:/Command Center/git/<task-id>`; then `gh` PR reads against a real repository.

@@ -506,3 +506,11 @@ Every reason a merge must not happen, gathered in one place so the approval rout
 ## lib/routes/director.mjs
 
 Loaded like every other route (name order, `ctx` object, returns true when handled). Everything is behind the panel's Host and origin checks; `/machine/hello` is the only route meant for another machine, and it still needs `127.0.0.1`/`localhost` as Host, so reachability is the user's tunnel. `POST /director/merge` refuses with 409 unless `mergeEnabled`, the typed confirmation equals the number, the stored approval matches the current head commit, and `mergeBlockers` is empty.
+
+## .gitignore:repo-root
+
+The app folder is its own repository root, which is what lets `config.json` keep `projectDir` at `E:/Command Center` (a symlink to the folder) while `lib/worktrees.mjs:prepare` gets a real repository for each task: worktrees land in `git/<task-id>` and are ignored, so the main checkout stays clean. Everything per-PC is ignored for the reason `lib/copy-app.ps1:CcExcluded` excludes it from a package — settings, task records, logs, reports, session notes and machine inventory belong to one computer. `lib/tasks.mjs:worktreeFor` still reports the non-repository fallback for a task pointed at a folder outside it, and `tools/director-check.mjs` asserts that path too.
+
+## lib/director.mjs:snapshot (agents)
+
+Each `agents` entry carries the checkout and the lease of a live run: `worktree`, `branch`, `leaseOwner`, `leaseAt`, plus `role` and `root`. A goal's own root task is included (it was filtered out before), because that task is the one that can hold a checkout while the card showed no agent at all. `viewer/public/director.js:goalCard` renders the path, the branch and the owner.

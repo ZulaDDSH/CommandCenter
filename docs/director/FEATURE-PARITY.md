@@ -100,6 +100,7 @@ Run against a copy of the app in `%TEMP%`, with its own `config.json`, `tasks.js
 | Pre-existing routes unchanged | `/`, `/tasks` (+ dispatcher ticking), `/board` GET and POST round trip, `/setup`, `/usage?p=route`, `/usage?p=codex`, `/sessions` (65 rows), `/api` page assets |
 | A goal becomes an assigned task | `POST /director/goal` → goal and task, `goal.taskId` matches, task carries `goal`; dispatcher ran it on `codex` |
 | Worktree per task | `<repo>/git/<task-id>` exists, `branch cc/<task-id>`, `git worktree list` knows it, main checkout `git status` still clean |
+| Worktree is real, not a fallback | the path is never the project folder, the task carries no `worktreeNote`, the Director panel lists the same path with `lease.owner`, and a task in a folder that is not a repository still reports the fallback |
 | Lease and heartbeat | `lease.owner` and `heartbeatAt` observed on the running task |
 | Result with evidence | report file with bytes and quoted head, `exitCode 0`, worktree head commit, goal stage `done` |
 | Pause gates the queue | a task added while paused stayed `waiting` for 6 s with reason `Paused: …` |
@@ -145,17 +146,17 @@ One command, documented in the README:
 node tools/director-check.mjs
 ```
 
-It parse-checks every module, copies the app to a throwaway folder, creates a scratch git repo and a
-fake `codex`, boots the panel there on `127.0.0.1`, and walks the slice: routes, goal, dispatch,
-worktree, lease, evidence, pause/stop/resume, machine hello, merge refusals, a kill mid-task and the
-recovery. It touches no real task, session, setting, relay file or other session's worktree, and it
+It parse-checks every module, copies the app to a throwaway folder, commits that copy as a git
+repository (the same layout the real folder now has) and writes a fake `codex`, boots the panel there
+on `127.0.0.1`, and walks the slice: routes, goal, dispatch, worktree, lease, evidence, pause/stop/
+resume, machine hello, merge refusals, a kill mid-task and the recovery. It touches no real task, session, setting, relay file or other session's worktree, and it
 starts no real provider. `--keep` leaves the temp folder and prints the panel log.
 
 `.github/workflows/director-check.yml` runs the same command on `windows-latest`.
 
 The mission said not to run local builds or tests. That rule protects a machine other sessions are
-working on from expensive or disruptive builds; this folder has no git repo, so nothing else would
-have verified the stage, and the check is cheap, isolated and reversible. The deviation and its
+working on from expensive or disruptive builds; this check installs nothing, starts no real provider
+and runs in a throwaway folder, so it stays cheap, isolated and reversible. The deviation and its
 reasoning are recorded in `docs/director/STAGES.md`.
 
 ## Next steps, in priority order
