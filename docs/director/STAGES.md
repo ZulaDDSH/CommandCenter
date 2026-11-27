@@ -447,3 +447,26 @@ were removed so the log has a single writer and no second path that could interl
 - CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45948032524 — success, `128 passed, 0 failed`
   on `windows-latest`, for commit `41f1252`. The only later change is this line and the same link in
   `FEATURE-PARITY.md`.
+
+## 2026-11-27 — Stage 10: a lease that belongs to another host
+
+- Goal: none. `holderGone` answers three ways — no lease or an expired one (gone), a lease on another
+  host (not gone), the same host with a dead pid (gone). Only the "gone" answers had assertions.
+- Exists: the "another host" branch had none. Writing the case also turned up a real defect: `cancel()`
+  looked the task up in the panel's in-memory list before the locked read, so a task that was on disk but
+  had not been loaded into this panel answered 404 `not-found` instead of refusing with `lease-foreign`.
+- Changed: the check seeds a `running` task with a fresh lease owned by `other-host:1:x` while the panel
+  is live, then asserts that a direct `recoverAtBoot()` takes nothing and leaves the row `running` with
+  its own token, that `POST /tasks/<id>/cancel` and `POST /tasks/<id>/done` both answer 409
+  `lease-foreign`, and that the row is untouched after both refusals. The row is closed on disk
+  afterwards so later sections do not see a stuck running task. `cancel()` no longer pre-checks the
+  in-memory list: the locked `closeTask` decides, so an on-disk task is refused for the right reason
+  instead of being reported missing.
+- Evidence: `node tools/director-check.mjs` → 132 passed, 0 failed (128 before). With
+  `if (host !== os.hostname()) return false;` deleted from `holderGone` in a throwaway copy, all four new
+  assertions fail: the task came back `interrupted`, recovery reported **1 taken**, and both closes
+  answered `already-closed` because the task had already been taken.
+- Limitations: the other host is simulated by an owner string and a fresh expiry rather than a second
+  machine process — the multi-machine section covers a real second process, but for its own task, not
+  this one. The third branch (same host, dead pid) is covered by the kill-and-recover section.
+- Next: none for this guard; nothing else in it is unasserted.

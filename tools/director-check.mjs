@@ -31,6 +31,12 @@ const setLease = (id, lease) => {
   return t;
 };
 const stamp = (ms = 120000) => ({ owner: 'other-host:1:x', at: new Date().toISOString(), ttl: 120000, expiresAt: new Date(Date.now() + ms).toISOString() });
+const seedRow = row => {
+  const list = readStore();
+  list.push(row);
+  fs.writeFileSync(storePath() + '.check', JSON.stringify(list, null, 2));
+  fs.renameSync(storePath() + '.check', storePath());
+};
 const fakeToken = () => crypto.randomBytes(6).toString('hex');
 const PEER_ENV = ['CC', 'PEER', 'SECRET'].join('_');
 const PEER_VALUE = crypto.randomBytes(16).toString('hex');
@@ -507,6 +513,25 @@ try {
 
   killPanel(extra);
   extra = null;
+
+  console.log('\nA lease held by another host');
+  const awayId = 'away-lease-check';
+  const awayToken = fakeToken();
+  seedRow({ id: awayId, title: 'Leased to another host', text: 'held elsewhere', status: 'running', provider: 'codex', kind: 'light', ranOn: 'codex', startedAt: new Date().toISOString(), createdAt: new Date().toISOString(), lease: { ...stamp(), token: awayToken } });
+  const awayTaken = writer.recoverAtBoot();
+  const awayRow = readStore().find(x => x.id === awayId);
+  must('a fresh lease on another host is not recovered', awayRow?.status === 'running' && awayRow?.lease?.token === awayToken, `${awayRow?.status} / ${awayRow?.lease?.token} / ${awayTaken} taken`);
+  const awayCancel = await postJson(port2, `/tasks/${awayId}/cancel`, {});
+  must('the panel refuses to cancel a task leased to another host', awayCancel.status === 409 && awayCancel.body?.code === 'lease-foreign', `HTTP ${awayCancel.status} ${awayCancel.body?.code ?? ''}`);
+  const awayDone = await postJson(port2, `/tasks/${awayId}/done`, {});
+  must('the panel refuses to mark it done', awayDone.status === 409 && awayDone.body?.code === 'lease-foreign', `HTTP ${awayDone.status} ${awayDone.body?.code ?? ''}`);
+  const awayStill = readStore().find(x => x.id === awayId);
+  must('the task is untouched after both refusals', awayStill?.status === 'running' && awayStill?.lease?.token === awayToken, `${awayStill?.status} / ${awayStill?.lease?.token}`);
+  const awayCleaned = readStore().map(x => x.id === awayId ? { ...x, status: 'cancelled', endedAt: new Date().toISOString(), reason: 'Closed by the check after the away-lease test.' } : x);
+  for (const row of awayCleaned) if (row.id === awayId) delete row.lease;
+  fs.writeFileSync(storePath() + '.check', JSON.stringify(awayCleaned, null, 2));
+  fs.renameSync(storePath() + '.check', storePath());
+
   const afterBoth = (await getJson(port2, '/tasks'))?.tasks?.find(x => x.id === task2);
   must('the task survives the second panel coming and going', afterBoth?.status === 'running' && afterBoth?.lease?.token === token1, `${afterBoth?.status} / ${afterBoth?.lease?.token}`);
 
@@ -644,12 +669,6 @@ try {
   console.log('\nConcurrent writers from separate processes');
   const storeModule = pathToFileURL(path.join(app, 'lib', 'tasks.mjs')).href;
   const storeLockFile = path.join(app, 'state', 'store.lock');
-  const seedRow = row => {
-    const list = readStore();
-    list.push(row);
-    fs.writeFileSync(storePath() + '.check', JSON.stringify(list, null, 2));
-    fs.renameSync(storePath() + '.check', storePath());
-  };
   const leaseNow = token => ({ owner: 'other-host:1:x', token, at: new Date().toISOString(), ttl: 120000, expiresAt: new Date(Date.now() + 120000).toISOString() });
   const childCode = (body, at) => `import(${JSON.stringify(storeModule)}).then(async m => { while (Date.now() < ${at}) {} try { ${body} } catch (e) { console.log(JSON.stringify({ ok: false, error: String((e && e.message) || e) })); } });`;
   const spawnJson = code => new Promise(resolve => {
