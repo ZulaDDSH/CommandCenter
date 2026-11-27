@@ -374,11 +374,17 @@ try {
   const held = await postJson(port1, '/tasks', { text: 'Held by the paused goal.', title: 'held check', provider: 'codex', goal: goalId });
   const heldId = held.body?.id;
   must('a task can be added under a paused goal', held.status === 200 && !!heldId, `HTTP ${held.status}${held.body?.error ? ` — ${held.body.error}` : ''}`);
-  setLease(heldId, { ...stamp(), token: fakeToken() });
-  const refusedCancel = await postJson(port1, `/tasks/${heldId}/cancel`, {});
+  const foreign = await postJson(port1, '/tasks', { text: 'Leased elsewhere.', title: 'foreign lease check', provider: 'codex', goal: goalId });
+  const foreignId = foreign.body?.id;
+  setLease(foreignId, { ...stamp(), token: fakeToken() });
+  const refusedCancel = await postJson(port1, `/tasks/${foreignId}/cancel`, {});
   must('the panel refuses to cancel a task leased elsewhere', refusedCancel.status === 409 && refusedCancel.body?.code === 'lease-foreign', `HTTP ${refusedCancel.status} ${refusedCancel.body?.code ?? ''}`);
-  must('the held task was not cancelled by the refused request', (await getJson(port1, '/tasks'))?.tasks?.find(x => x.id === heldId)?.status === 'waiting');
-  setLease(heldId, null);
+  must('the task leased elsewhere was not cancelled by the refused request', (await getJson(port1, '/tasks'))?.tasks?.find(x => x.id === foreignId)?.status === 'waiting');
+  const foreignRows = readStore();
+  const foreignRow = foreignRows.find(x => x.id === foreignId);
+  if (foreignRow) Object.assign(foreignRow, { status: 'cancelled', endedAt: new Date().toISOString(), reason: 'Closed by the check after the refusal test.' }), delete foreignRow.lease;
+  fs.writeFileSync(storePath() + '.check', JSON.stringify(foreignRows, null, 2));
+  fs.renameSync(storePath() + '.check', storePath());
   const gated = await until(async () => {
     const b = await getJson(port1, '/tasks');
     const t = (b?.tasks ?? []).find(x => x.id === heldId);
@@ -391,7 +397,8 @@ try {
 
   const stopped = await postJson(port1, `/director/goal/${goalId}/stop`);
   must('stop sets the goal stopped', stopped.body?.goal?.status === 'stopped', stopped.body?.goal?.status ?? `HTTP ${stopped.status}`);
-  must('stop cancelled the held task', (await getJson(port1, '/tasks'))?.tasks?.find(x => x.id === heldId)?.status === 'cancelled');
+  const stoppedTask = (await getJson(port1, '/tasks'))?.tasks?.find(x => x.id === heldId);
+  must('stop cancelled the held task', stoppedTask?.status === 'cancelled', `${stoppedTask?.status ?? 'gone'}; cancelled ${stopped.body?.cancelled ?? '?'}; lease ${stoppedTask?.lease?.owner ?? 'none'}`);
 
   const resumed = await postJson(port1, `/director/goal/${goalId}/resume`);
   must('resume sets the goal active', resumed.body?.goal?.status === 'active', resumed.body?.goal?.status ?? `HTTP ${resumed.status}`);
@@ -587,6 +594,45 @@ try {
 
   killPanel(current);
   current = null;
+
+  console.log('\nTwo writers close unrelated tasks at once');
+  const seedRace = (id, token) => {
+    const list = readStore();
+    list.push({ id, title: `Racing writer ${id}`, status: 'running', provider: 'codex', kind: 'light', createdAt: new Date().toISOString(), startedAt: new Date().toISOString(), ranOn: 'codex', lease: { owner: 'other-host:1:x', token, at: new Date().toISOString(), ttl: 120000, expiresAt: new Date(Date.now() + 120000).toISOString() } });
+    fs.writeFileSync(storePath() + '.check', JSON.stringify(list, null, 2));
+    fs.renameSync(storePath() + '.check', storePath());
+  };
+  const raceModule = pathToFileURL(path.join(app, 'lib', 'tasks.mjs')).href;
+  const closer = (taskId, token, at) => new Promise(resolve => {
+    const code = `import(${JSON.stringify(raceModule)}).then(m => { while (Date.now() < ${at}) {} const r = m.closeTask(${JSON.stringify(taskId)}, 'done', 'closed by a racing writer', { token: ${JSON.stringify(token)} }); console.log(JSON.stringify({ ok: r.ok, code: r.code || null, status: r.task?.status || null })); }, e => console.log(JSON.stringify({ ok: false, code: String((e && e.message) || e) })));`;
+    const p = spawn(process.execPath, ['-e', code], { windowsHide: true, env: { ...process.env } });
+    let out = '';
+    p.stdout.on('data', d => { out += d; });
+    p.stderr.on('data', d => { out += d; });
+    p.on('close', () => resolve(out.trim().split(/\r?\n/).filter(Boolean).pop() ?? ''));
+  });
+  const rounds = 8;
+  let lostRounds = 0, refusedRounds = 0;
+  for (let i = 0; i < rounds; i++) {
+    const a = `race-${i}-a`, b = `race-${i}-b`;
+    const ta = fakeToken(), tb = fakeToken();
+    seedRace(a, ta);
+    seedRace(b, tb);
+    const at = Date.now() + 400;
+    const outs = await Promise.all([closer(a, ta, at), closer(b, tb, at)]);
+    for (const o of outs) {
+      try { if (JSON.parse(o).ok !== true) refusedRounds++; } catch { refusedRounds++; }
+    }
+    const rows = readStore();
+    if (rows.find(x => x.id === a)?.status !== 'done' || rows.find(x => x.id === b)?.status !== 'done') lostRounds++;
+  }
+  must('both racing writers kept their own update in every round', lostRounds === 0, `${rounds - lostRounds}/${rounds} round(s) kept both`);
+  must('neither racing writer was refused', refusedRounds === 0, `${refusedRounds} refusal(s)`);
+  must('the store lock is released when the writers are done', !fs.existsSync(path.join(app, 'state', 'store.lock')));
+  const cleaned = readStore().filter(x => !String(x.id).startsWith('race-'));
+  fs.writeFileSync(storePath() + '.check', JSON.stringify(cleaned, null, 2));
+  fs.renameSync(storePath() + '.check', storePath());
+
   ok(parsed ? 'parse checks passed before the run' : 'parse checks reported failures above');
 } catch (e) {
   bad('check run completed', e?.stack ? String(e.stack).split('\n').slice(0, 4).join(' | ') : String(e?.message ?? e));

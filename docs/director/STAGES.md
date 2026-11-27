@@ -323,3 +323,31 @@ route `POST /director/stage` is the way to add an entry from a running panel.
   real step, and `claim` stays 501 until that exists.
 - CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45944133896 — success, `108 passed, 0 failed`
   on `windows-latest`, for commit `c284bcb`. The only later change is this line.
+
+## 2026-11-27 — Stage 6: compare-and-set on the task store
+
+- Goal: none. The fence refused the wrong writer, but the store write itself was still whole-file.
+- Exists: `closeTask` re-read the file to decide a refusal, then mutated the task object it already had
+  in memory and called `save()`, which serialized that process's whole array. The fresh read protected the
+  decision but not the write: two writers closing unrelated tasks each wrote their own snapshot and the
+  second one erased the first one's update. `recoverAtBoot` had the same shape — it decided from the
+  in-memory array, so it could take a task whose lease was live on disk but looked expired in memory.
+- Changed: the store now has a lock (`state/store.lock`, created with `wx`, holding pid and time,
+  released in `finally`, a lock older than 30 s broken as stale) and `syncFromDisk()`, which re-reads the
+  file and merges each row into the existing task object so references held by the dispatcher keep
+  working. `closeTask` and `recoverAtBoot` run entirely under the lock: re-read, decide, mutate, write.
+  A writer that cannot get the lock within 10 s returns `store-busy` and changes nothing instead of
+  writing a stale copy; `recoverAtBoot` returns 0 and takes nothing.
+- Evidence: `node tools/director-check.mjs` → 111 passed, 0 failed (108 before). The new section spawns
+  two processes that each import `lib/tasks.mjs` against the same store, wait for a shared start time and
+  close different leased tasks, for 8 rounds: both tasks must stay `done`, no writer may be refused, and
+  the lock file must be gone afterwards. Run against the previous `closeTask` (this suite on a copy with
+  `HEAD`'s `lib/tasks.mjs`): **0 of 8 rounds kept both updates** and one writer was refused. The check
+  pins the behaviour instead of describing it.
+- Limitations: `startTask`, heartbeat, retry/resume/approve and the dispatcher's reason and hold writes
+  still save the process's own array, so one of them can still overwrite a close made by another process;
+  `closeTask` and `recoverAtBoot` were the paths where two writers actually raced. The lock is a local
+  file lock between processes on one machine: two machines pointing at the same store over a network
+  share are not safe and nothing here claims they are.
+- Next: move the remaining mutators onto the same locked re-read-and-write, or give each task its own
+  record file, so no writer ever serializes a snapshot again.

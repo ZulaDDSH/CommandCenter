@@ -108,6 +108,8 @@ Run against a copy of the app in `%TEMP%`, with its own `config.json`, `tasks.js
 | Second machine identity | a second process with its own CC_ROOT data folder, its own CC_MACHINE_NAME and its own secret got a different machine id, was listed as not authenticated before its hello and as authenticated after it, and the host stored its reported id, capabilities and availability |
 | Remote claim is unsupported | the same signed caller got 501 claim-unsupported, the same caller with a wrong secret got 403 not-authenticated, its own store held none of the host tasks, no task named that machine, and the host kept ticking with its lease token unchanged |
 | Result with evidence | report file with bytes and quoted head, `exitCode 0`, worktree head commit, goal stage `done` |
+| Concurrent closes | two processes importing the store closed different leased tasks with a shared start time, 8 rounds: both stayed closed every round with no refusal and the lock file was gone afterwards |
+| Recovery reads the store, not a snapshot | a direct recoverAtBoot() beside a live holder re-read the file under the same lock, took nothing, and the live task kept its token; the previous snapshot read could take a task whose on-disk lease was live |
 | Pause gates the queue | a task added while paused stayed `waiting` for 6 s with reason `Paused: …` |
 | Stop and resume | stop cancelled the held task and set the goal `stopped`; resume let a new task run |
 | Interruption recovers | panel killed mid-run → task came back `interrupted` (not `failed`), one copy only, same worktree, stale `state/panel.lock` taken over, still not restarted 6 s later |
