@@ -18,7 +18,7 @@ function steps(x){const key=x.provider+':'+x.id+':';
 function render(x){cur.x=x;$('vact').hidden=false;$('varc').textContent=x.archived?'Unarchive':'Archive';const f=$('vfeed'),atBottom=f.scrollHeight-f.scrollTop-f.clientHeight<80,top=f.scrollTop,restoreFocus=keepFeedFocus(f);
  $('vtitle').textContent=x.title||x.id;
  $('vmeta').innerHTML=[esc(x.provider),x.model&&esc(x.model),'<span title="'+esc(x.cwd)+'">'+esc(last2(x.cwd))+'</span>',dot(x.live,x.liveWhy),'history read from disk, the panel cannot stop or message it','last activity '+esc(recent(x.mtime))].filter(Boolean).join(' · ');
- f.innerHTML=steps(x);
+ f.innerHTML=(x.failure?'<div class="tk-warn" role="status"><b>Task failed</b><p>'+esc(x.failure)+'</p></div>':'')+steps(x);
  f.scrollTop=($('vfollow').checked&&atBottom)?f.scrollHeight:top;restoreFocus()}
 
 async function load(first){const t=token;let raw,ok;

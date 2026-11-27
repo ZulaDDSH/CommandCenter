@@ -324,7 +324,11 @@ http.createServer(async (req, res) => {
       const fn = Object.hasOwn(sessionDetails, q('p')) ? sessionDetails[q('p')] : null;
       if (!fn) return send(res, 404, { error: 'unknown provider' });
       const s = fn(q('id'));
-      return s ? send(res, 200, s) : send(res, 404, { error: 'session not found' });
+      if (!s) return send(res, 404, { error: 'session not found' });
+      const origin = sessionOrigin(tasks.list(), tasks.logFile), id = origin.task(q('p'), s);
+      const task = id && tasks.get(id);
+      if (task?.status === 'failed') s.failure = tasks.display(task).note || 'This task failed. Open the task log for details.';
+      return send(res, 200, s);
     }
     if (u.pathname === '/tasks' && req.method === 'POST') {
       let input;

@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import argparse
 import base64
 import ctypes
@@ -305,38 +306,43 @@ def windows_lock(path):
 def secure_private_dir(directory):
     if os.name != "nt":
         raise RuntimeError("Private transaction storage requires Windows ACLs.")
-    import subprocess
     reject_links(directory)
-    sid = current_sid()
-    grants = [f"*{sid}:(OI)(CI)F", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"]
-    icacls = str(system_tool("icacls.exe"))
-    subprocess.run([icacls, str(directory), "/reset"], capture_output=True, text=True, check=True)
-    subprocess.run([icacls, str(directory), "/inheritance:r", "/grant:r", *grants], capture_output=True, text=True, check=True)
-    subprocess.run([icacls, str(directory), "/verify"], capture_output=True, text=True, check=True)
-    fd, probe = tempfile.mkstemp(prefix=".acl-check-", dir=directory)
-    os.close(fd)
-    Path(probe).unlink()
+    set_private_acl(directory, directory=True)
     candidates = [directory / name for name in ("registry.json", "shared-mcp-adapter.py", "transactions.jsonl", "migration.lock")]
     candidates.extend(directory.glob("*.displaced"))
     candidates.extend(directory.glob("*.cc-*"))
     for candidate in candidates:
         reject_links(candidate)
         if candidate.exists():
-            secure_private_file(candidate, grants)
+            secure_private_file(candidate)
 
 
-def secure_private_file(file, grants=None):
-    import subprocess
-    if grants is None:
-        sid = current_sid()
-        grants = [f"*{sid}:(OI)(CI)F", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"]
-    icacls = str(system_tool("icacls.exe"))
-    file_grants = [f"{grant.split(':', 1)[0]}:F" for grant in grants]
-    subprocess.run([icacls, str(file), "/reset"], capture_output=True, text=True, check=True)
-    subprocess.run([icacls, str(file), "/inheritance:r", "/grant:r", *file_grants], capture_output=True, text=True, check=True)
-    subprocess.run([icacls, str(file), "/verify"], capture_output=True, text=True, check=True)
-    with file.open("r+b"):
-        pass
+def set_private_acl(path, directory=False):
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    descriptor = ctypes.c_void_p()
+    flags = "OICI" if directory else ""
+    sddl = "D:P" + "".join(f"(A;{flags};FA;;;{sid})" for sid in (current_sid(), "SY", "BA"))
+    convert = advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW
+    convert.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
+    convert.restype = wintypes.BOOL
+    if not convert(sddl, 1, ctypes.byref(descriptor), None):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        apply_acl = advapi.SetFileSecurityW
+        apply_acl.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p]
+        apply_acl.restype = wintypes.BOOL
+        if not apply_acl(str(path), 0x80000004, descriptor):
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        kernel.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel.LocalFree.restype = ctypes.c_void_p
+        kernel.LocalFree(descriptor)
+
+
+def secure_private_file(file):
+    reject_links(file)
+    set_private_acl(file)
 
 
 def system_tool(name):
@@ -360,16 +366,18 @@ def current_sid():
     return sid
 
 
-def validate_config_acl(file):
+def validate_config_acl(file, allow_inherited_read=False, handle=None):
     if os.name != "nt":
         raise RuntimeError("Windows ACL validation is required before config replacement.")
     advapi = ctypes.WinDLL("advapi32", use_last_error=True)
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     owner, dacl, descriptor = ctypes.c_void_p(), ctypes.c_void_p(), ctypes.c_void_p()
-    get_info = advapi.GetNamedSecurityInfoW
-    get_info.argtypes = [wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p)]
+    get_info = advapi.GetNamedSecurityInfoW if handle is None else advapi.GetSecurityInfo
+    get_info.argtypes = [wintypes.LPWSTR if handle is None else wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                         *[ctypes.POINTER(ctypes.c_void_p)] * 5]
     get_info.restype = wintypes.DWORD
-    code = get_info(str(file), 1, 0x1 | 0x4, ctypes.byref(owner), None, ctypes.byref(dacl), None, ctypes.byref(descriptor))
+    code = get_info(str(file) if handle is None else handle, 1, 0x5,
+                    ctypes.byref(owner), None, ctypes.byref(dacl), None, ctypes.byref(descriptor))
     if code:
         raise OSError(code, "Could not inspect the MCP config ACL.")
     try:
@@ -395,6 +403,7 @@ def validate_config_acl(file):
         get_ace = advapi.GetAce
         get_ace.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p)]
         get_ace.restype = wintypes.BOOL
+        inherited_read = False
         for index in range(info.AceCount):
             ace = ctypes.c_void_p()
             if not get_ace(dacl, index, ctypes.byref(ace)):
@@ -404,9 +413,15 @@ def validate_config_acl(file):
                 raise RuntimeError(f"{file} has a non-allow ACL entry; refusing migration.")
             sid = sid_text(ace.value + 8, advapi, kernel)
             if sid not in allowed:
+                flags = ctypes.c_ubyte.from_address(ace.value + 1).value
+                mask = wintypes.DWORD.from_address(ace.value + 4).value
+                if allow_inherited_read and flags & 0x10 and not (mask & ~0x1200A9):
+                    inherited_read = True
+                    continue
                 raise RuntimeError(f"{file} grants access to an unsupported principal: {sid}.")
         if not owner.value or sid_text(owner.value, advapi, kernel) not in allowed:
             raise RuntimeError(f"{file} owner is not in the allowed principal set.")
+        return inherited_read
     finally:
         kernel.LocalFree.argtypes = [ctypes.c_void_p]
         kernel.LocalFree.restype = ctypes.c_void_p
@@ -582,6 +597,108 @@ def load_current_registry(path):
     return obj, data
 
 
+@contextmanager
+def txf_transaction():
+    try:
+        ktm = ctypes.WinDLL("ktmw32", use_last_error=True)
+    except OSError as error:
+        raise RuntimeError("Atomic migration requires Windows Transactional NTFS (TxF) on a local volume.") from error
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = ktm.CreateTransaction
+    create.argtypes = [ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD,
+                       wintypes.DWORD, wintypes.DWORD, wintypes.LPWSTR]
+    create.restype = wintypes.HANDLE
+    transaction = create(None, None, 0, 0, 0, 0, None)
+    if transaction == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    close = kernel.CloseHandle
+    close.argtypes = [wintypes.HANDLE]
+    close.restype = wintypes.BOOL
+    commit = ktm.CommitTransaction
+    commit.argtypes = [wintypes.HANDLE]
+    commit.restype = wintypes.BOOL
+    try:
+        yield transaction
+        if not commit(transaction):
+            raise ctypes.WinError(ctypes.get_last_error())
+    except OSError as error:
+        if getattr(error, "winerror", None) in (1, 50, 120, 6801, 6805):
+            raise RuntimeError(f"Atomic migration requires an available local Transactional NTFS (TxF) volume: {error}") from error
+        raise
+    finally:
+        close(transaction)
+
+
+def txf_step(transaction, target, before, after, *, client=False, recovering=False):
+    import msvcrt
+    reject_links(target)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = kernel.CreateFileTransactedW
+    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE, wintypes.HANDLE,
+                       ctypes.c_void_p, ctypes.c_void_p]
+    create.restype = wintypes.HANDLE
+    access = 0xC0000000 | (0x10000 if after is None else 0)
+    handle = create(str(target), access, 1, None, 3, 0x00200000, None, transaction, None, None)
+    new = False
+    if handle == ctypes.c_void_p(-1).value:
+        code = ctypes.get_last_error()
+        if code != 2:
+            raise ctypes.WinError(code)
+        if after is None and recovering:
+            return
+        if before is not None:
+            raise RuntimeError(f"Missing transaction participant: {target}")
+        handle = create(str(target), access, 1, None, 1, 0x00200000, None, transaction, None, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        new = True
+    try:
+        fd = msvcrt.open_osfhandle(handle, os.O_RDWR | os.O_BINARY)
+    except BaseException:
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle(handle)
+        raise
+    with os.fdopen(fd, "r+b", buffering=0) as stream:
+        final_name = kernel.GetFinalPathNameByHandleW
+        final_name.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
+        final_name.restype = wintypes.DWORD
+        name = ctypes.create_unicode_buffer(32768)
+        length = final_name(handle, name, len(name), 0)
+        if not length:
+            raise ctypes.WinError(ctypes.get_last_error())
+        if length >= len(name) or os.path.normcase(name.value.removeprefix("\\\\?\\")) != os.path.normcase(os.path.abspath(target)):
+            raise RuntimeError(f"Transaction handle points outside the expected path: {target}")
+        meta = os.fstat(fd)
+        attributes = wintypes.DWORD * 2
+        tag = attributes()
+        get_info = kernel.GetFileInformationByHandleEx
+        get_info.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        get_info.restype = wintypes.BOOL
+        if not get_info(handle, 9, ctypes.byref(tag), ctypes.sizeof(tag)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if not stat.S_ISREG(meta.st_mode) or meta.st_nlink != 1 or tag[0] & 0x400:
+            raise RuntimeError(f"Expected a single-link regular file: {target}")
+        if client:
+            validate_config_acl(target, allow_inherited_read=True, handle=handle)
+        current = None if new else stream.read()
+        if recovering and current == after:
+            return
+        if current != before:
+            raise RuntimeError(f"Transaction stopped on a concurrent change to {target}.")
+        if after is not None:
+            stream.seek(0)
+            if stream.write(after) != len(after):
+                raise OSError(f"Incomplete transaction write to {target}.")
+            stream.truncate()
+            return
+    remove = kernel.DeleteFileTransactedW
+    remove.argtypes = [wintypes.LPCWSTR, wintypes.HANDLE]
+    remove.restype = wintypes.BOOL
+    if not remove(str(target), transaction):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
 def migrate(paths):
     for key in ("codex", "opencode", "adapter", "registry", "journal"):
         reject_links(paths[key])
@@ -594,10 +711,11 @@ def migrate(paths):
     pending = [txid for txid, state in states.items() if state == "prepared"]
     if pending:
         raise RuntimeError(f"An unresolved transaction must be recovered first: {pending[-1]}")
+    requires_txf = False
     for key in ("codex", "opencode"):
         if read(paths[key]) is None:
             raise ValueError(f"Missing config: {paths[key]}")
-        validate_config_acl(paths[key])
+        requires_txf |= validate_config_acl(paths[key], allow_inherited_read=True)
     if not paths["source_adapter"].is_file():
         raise ValueError("The shared adapter source is missing from this installation.")
     codex_original, open_original = read(paths["codex"]), read(paths["opencode"])
@@ -621,9 +739,18 @@ def migrate(paths):
     }
     txid = str(uuid.uuid4())
     steps = {key: {"path": str(paths[key]), "before": sha(snap(old)), "after": sha(new), "backup": str(displaced_for(paths, paths[key], txid, key)), "snapshot": protect(snap(old))} for key, (old, new) in participants.items()}
-    journal(paths["journal"], {"id": txid, "event": "prepared", "steps": steps})
-    for key in ("adapter", "registry", "codex", "opencode"):
-        apply_step(paths, txid, key, participants[key][1], steps[key]["before"])
+    if requires_txf:
+        for key, (old, new) in participants.items():
+            steps[key]["absent"] = old is None
+            steps[key]["intended"] = protect(new)
+        with txf_transaction() as transaction:
+            for key, (old, new) in participants.items():
+                txf_step(transaction, paths[key], old, new, client=key in ("codex", "opencode"))
+            journal(paths["journal"], {"id": txid, "event": "prepared", "backend": "txf", "steps": steps})
+    else:
+        journal(paths["journal"], {"id": txid, "event": "prepared", "steps": steps})
+        for key in ("adapter", "registry", "codex", "opencode"):
+            apply_step(paths, txid, key, participants[key][1], steps[key]["before"])
     journal(paths["journal"], {"id": txid, "event": "committed"})
     print(f"Migrated prisma-mcp and reevesagents. Transaction: {txid}")
     return txid
@@ -646,6 +773,20 @@ def recover(paths, txid):
     if not prepared or not isinstance(prepared.get("steps"), dict) or set(prepared["steps"]) != {"codex", "opencode", "registry", "adapter"}:
         raise ValueError("Prepared transaction was not found or has an unsupported journal schema.")
     allowed_paths = {key: paths[key].resolve() for key in prepared["steps"]}
+    if prepared.get("backend") == "txf":
+        with txf_transaction() as transaction:
+            for key, step in prepared["steps"].items():
+                if Path(step["path"]).resolve() != allowed_paths[key]:
+                    raise ValueError("Journal participant path does not match the configured fixed path.")
+                original = unprotect(step["snapshot"])
+                intended = unprotect(step["intended"])
+                if sha(original) != step["before"] or sha(intended) != step["after"]:
+                    raise ValueError(f"Encrypted {key} snapshot failed its hash check.")
+                txf_step(transaction, paths[key], intended, None if step["absent"] else original,
+                         client=key in ("codex", "opencode"), recovering=True)
+        journal(paths["journal"], {"id": txid, "event": "rolled-back"})
+        print(f"Rolled back transaction {txid}.")
+        return
     originals = {}
     states = {}
     for key, step in prepared["steps"].items():

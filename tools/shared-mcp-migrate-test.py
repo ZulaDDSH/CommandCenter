@@ -1,4 +1,5 @@
 import contextlib
+import ctypes
 import copy
 import importlib.util
 import io
@@ -23,11 +24,29 @@ SPEC.loader.exec_module(MIGRATE)
 class SharedMcpMigrateTests(unittest.TestCase):
     keys = ("codex", "opencode", "registry", "adapter")
 
-    def make_paths(self, root, absent=()):
+    def make_paths(self, root, absent=(), inherited_read=False, inherited_write=False):
         state = root / "private-state"
         state.mkdir()
-        codex = root / "codex-config.toml"
-        opencode = root / "opencode-config.json"
+        MIGRATE.secure_private_dir(state)
+        clients = root
+        if inherited_read or inherited_write:
+            clients = root / "client-configs"
+            clients.mkdir()
+            MIGRATE.secure_private_dir(clients)
+            subprocess.run(
+                [
+                    str(MIGRATE.system_tool("icacls.exe")),
+                    str(clients),
+                    "/grant:r",
+                    f"*S-1-1-0:(OI)(CI){'M' if inherited_write else 'RX'}",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        codex = clients / "codex-config.toml"
+        opencode = clients / "opencode-config.json"
         registry = state / "registry.json"
         adapter = state / "shared-mcp-adapter.py"
         source_adapter = root / "source-adapter.py"
@@ -67,8 +86,9 @@ class SharedMcpMigrateTests(unittest.TestCase):
         }
         codex.write_bytes(originals["codex"])
         opencode.write_bytes(originals["opencode"])
-        MIGRATE.secure_private_file(codex)
-        MIGRATE.secure_private_file(opencode)
+        if not inherited_read and not inherited_write:
+            MIGRATE.secure_private_file(codex)
+            MIGRATE.secure_private_file(opencode)
         if "registry" not in absent:
             registry.write_bytes(originals["registry"])
         if "adapter" not in absent:
@@ -100,6 +120,147 @@ class SharedMcpMigrateTests(unittest.TestCase):
                 self.assertFalse(paths[key].exists(), key)
             else:
                 self.assertEqual(paths[key].read_bytes(), originals[key], key)
+
+    def assert_no_plaintext_backups(self, paths, journal, markers):
+        data = journal.read_bytes()
+        for marker in markers:
+            self.assertNotIn(marker, data)
+        self.assertFalse(list(journal.parent.glob("*.displaced")))
+        self.assertFalse(list(journal.parent.glob("*.cc-*")))
+
+    def test_inherited_broad_read_uses_txf_encryption_and_rolls_back(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, originals = self.make_paths(Path(directory), inherited_read=True)
+            for key in ("codex", "opencode"):
+                self.assertTrue(MIGRATE.validate_config_acl(paths[key], allow_inherited_read=True))
+            txid = self.run_migration(paths)
+            records = self.journal(paths["journal"])
+            prepared = next(row for row in records if row.get("id") == txid and row.get("event") == "prepared")
+            self.assertEqual(prepared["backend"], "txf")
+            for key in self.keys:
+                with self.subTest(snapshot=key):
+                    step = prepared["steps"][key]
+                    self.assertEqual(MIGRATE.unprotect(step["snapshot"]), originals[key])
+                    intended = MIGRATE.unprotect(step["intended"])
+                    self.assertEqual(MIGRATE.sha(intended), step["after"])
+            for key in ("codex", "opencode"):
+                self.assertTrue(MIGRATE.validate_config_acl(paths[key], allow_inherited_read=True))
+            self.assert_no_plaintext_backups(
+                paths,
+                paths["journal"],
+                (b"old-sentinel", b"old-registry-sentinel", b"old-adapter-sentinel"),
+            )
+            self.assertFalse(any(row.get("id") == txid and row.get("event") == "displaced" for row in records))
+            self.assertIsNone(MIGRATE.recover(paths, txid))
+            self.assert_originals(paths, originals)
+            for key in ("codex", "opencode"):
+                self.assertTrue(MIGRATE.validate_config_acl(paths[key], allow_inherited_read=True))
+            self.assert_no_plaintext_backups(
+                paths,
+                paths["journal"],
+                (b"old-sentinel", b"old-registry-sentinel", b"old-adapter-sentinel"),
+            )
+
+    def test_txf_rollback_removes_private_files_that_were_absent(self):
+        absent = {"registry", "adapter"}
+        with tempfile.TemporaryDirectory() as directory:
+            paths, originals = self.make_paths(Path(directory), absent=absent, inherited_read=True)
+            txid = self.run_migration(paths)
+            prepared = next(row for row in self.journal(paths["journal"]) if row.get("id") == txid and row.get("event") == "prepared")
+            self.assertEqual(prepared["backend"], "txf")
+            self.assertEqual(MIGRATE.unprotect(prepared["steps"]["registry"]["snapshot"]), MIGRATE.ABSENT)
+            self.assertEqual(MIGRATE.unprotect(prepared["steps"]["adapter"]["snapshot"]), MIGRATE.ABSENT)
+            self.assertTrue(paths["registry"].exists())
+            self.assertTrue(paths["adapter"].exists())
+            self.assertIsNone(MIGRATE.recover(paths, txid))
+            self.assert_originals(paths, originals, absent)
+            self.assertFalse(list(paths["journal"].parent.glob("*.displaced")))
+            self.assertFalse(list(paths["journal"].parent.glob("*.cc-*")))
+
+    def test_txf_refuses_inherited_broad_write_access(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, _ = self.make_paths(Path(directory), inherited_write=True)
+            before = {key: paths[key].read_bytes() if paths[key].exists() else None for key in (*self.keys, "journal")}
+            with self.assertRaisesRegex(RuntimeError, "unsupported principal: S-1-1-0"):
+                self.run_migration(paths)
+            after = {key: paths[key].read_bytes() if paths[key].exists() else None for key in (*self.keys, "journal")}
+            self.assertEqual(after, before)
+
+    def test_txf_stale_snapshot_conflict_preserves_competing_edit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, originals = self.make_paths(Path(directory), inherited_read=True)
+            concurrent = b"competing writer config\n"
+            txf_step = MIGRATE.txf_step
+            wrote = False
+
+            def inject_writer(transaction, target, before, after, **options):
+                nonlocal wrote
+                if Path(target) == paths["codex"] and not wrote:
+                    paths["codex"].write_bytes(concurrent)
+                    wrote = True
+                return txf_step(transaction, target, before, after, **options)
+
+            with mock.patch.object(MIGRATE, "txf_step", side_effect=inject_writer):
+                with self.assertRaisesRegex(RuntimeError, "concurrent change"):
+                    self.run_migration(paths)
+            self.assertTrue(wrote)
+            self.assertEqual(paths["codex"].read_bytes(), concurrent)
+            for key in ("opencode", "registry", "adapter"):
+                self.assertEqual(paths[key].read_bytes(), originals[key])
+            self.assertFalse(paths["journal"].exists())
+            self.assertFalse(list(paths["journal"].parent.glob("*.displaced")))
+            self.assertFalse(list(paths["journal"].parent.glob("*.cc-*")))
+
+    @unittest.skipUnless(os.name == "nt", "TxF writer locking is Windows-specific")
+    def test_txf_open_nontransactional_writer_blocks_transactional_write(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, originals = self.make_paths(Path(directory), inherited_read=True)
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            create_file = kernel32.CreateFileW
+            create_file.argtypes = (ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p)
+            create_file.restype = ctypes.c_void_p
+            close_handle = kernel32.CloseHandle
+            close_handle.argtypes = (ctypes.c_void_p,)
+            close_handle.restype = ctypes.c_int
+            handle = create_file(str(paths["codex"]), 0x40000000, 0x00000001, None, 3, 0x00000080, None)
+            self.assertNotEqual(handle, ctypes.c_void_p(-1).value)
+            try:
+                with self.assertRaises(OSError) as caught:
+                    self.run_migration(paths)
+                self.assertIn(getattr(caught.exception, "winerror", None), (32, 6800))
+            finally:
+                close_handle(handle)
+            self.assert_originals(paths, originals)
+            self.assertFalse(paths["journal"].exists())
+            self.assertFalse(list(paths["journal"].parent.glob("*.displaced")))
+            self.assertFalse(list(paths["journal"].parent.glob("*.cc-*")))
+
+    def test_txf_failure_aborts_all_participants_without_plaintext_backups(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, originals = self.make_paths(Path(directory), inherited_read=True)
+            txf_transaction = MIGRATE.txf_transaction
+
+            @contextlib.contextmanager
+            def fail_before_commit():
+                with txf_transaction() as transaction:
+                    yield transaction
+                    raise OSError("simulated TxF commit failure")
+
+            with mock.patch.object(MIGRATE, "txf_transaction", side_effect=fail_before_commit):
+                with self.assertRaisesRegex(OSError, "simulated TxF commit failure"):
+                    self.run_migration(paths)
+            self.assert_originals(paths, originals)
+            records = self.journal(paths["journal"])
+            txid = self.transaction_id(paths)
+            self.assertTrue(any(row.get("id") == txid and row.get("event") == "prepared" for row in records))
+            self.assertFalse(any(row.get("id") == txid and row.get("event") == "committed" for row in records))
+            self.assert_no_plaintext_backups(
+                paths,
+                paths["journal"],
+                (b"old-sentinel", b"old-registry-sentinel", b"old-adapter-sentinel"),
+            )
+            self.assertIsNone(MIGRATE.recover(paths, txid))
+            self.assert_originals(paths, originals)
 
     def test_migration_updates_both_clients_and_registry(self):
         with tempfile.TemporaryDirectory() as directory:
