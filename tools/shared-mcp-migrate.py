@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import argparse
 import base64
 import ctypes
@@ -210,6 +210,73 @@ def update_json(data, ids, adapter, python):
     return updated, text.encode("utf-8")
 
 
+CLAUDE_STASH_NAMES = ("gimp", "reevesagents")
+
+
+def update_stash(data, claude, commands, adapter, python):
+    text = data.decode("utf-8-sig")
+    stash = strict_json(text)
+    if not isinstance(stash, dict) or type(stash.get("version")) is not int or stash["version"] != 1 or not isinstance(stash.get("entries"), list):
+        raise ValueError("Unsupported disabled-extension stash.")
+    entries = stash["entries"]
+    spans = _json_spans(text)[2]["entries"][2]
+    expected = copy.deepcopy(stash)
+    found, replacements = set(), []
+    for index, row in enumerate(entries):
+        if not isinstance(row, dict) or row.get("kind") != "mcp" or row.get("app") != "Claude Code" or row.get("name") not in CLAUDE_STASH_NAMES:
+            continue
+        if row.get("scope") != ["mcpServers"] or not isinstance(row.get("file"), str) or Path(row["file"]) != claude:
+            continue
+        name, cfg = row["name"], row.get("cfg")
+        if name in found or not isinstance(row.get("id"), str) or not row["id"] or sum(isinstance(e, dict) and e.get("id") == row["id"] for e in entries) != 1:
+            raise ValueError(f"Ambiguous Claude stash entry for {name}.")
+        if type(row.get("idx")) is not int or row["idx"] < 0 or not isinstance(cfg, dict) or cfg.get("type") != "stdio":
+            raise ValueError(f"Unsupported Claude stash entry for {name}.")
+        if set(cfg) - {"type", "command", "args", "env"} or cfg.get("env", {}) != {}:
+            raise ValueError(f"Unsupported Claude launch settings for {name}.")
+        if safe_command(cfg.get("command"), cfg.get("args")) != commands[name]:
+            raise ValueError(f"Claude and Codex launches differ for {name}.")
+        fields = spans[index][2]["cfg"][2]
+        for key, value in (("command", python), ("args", [str(adapter), name])):
+            start, end, _ = fields[key]
+            replacements.append((start, end, json.dumps(value, ensure_ascii=False)))
+            expected["entries"][index]["cfg"][key] = value
+        found.add(name)
+    if found != set(CLAUDE_STASH_NAMES):
+        raise ValueError("Expected both matching disabled Claude stash entries.")
+    for start, end, value in sorted(replacements, reverse=True):
+        text = text[:start] + value + text[end:]
+    if strict_json(text) != expected:
+        raise ValueError("Claude stash semantic round-trip validation failed.")
+    return text.encode("utf-8-sig" if data.startswith(bytes.fromhex("efbbbf")) else "utf-8")
+
+
+@contextmanager
+def disabled_claude_guard(path):
+    import msvcrt
+    reject_links(path)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    create.restype = wintypes.HANDLE
+    handle = create(str(path), 0x80000000, 1, None, 3, 0x00200000, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        fd = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+    except BaseException:
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle(handle)
+        raise
+    with os.fdopen(fd, "rb") as stream:
+        cfg = strict_json(stream.read().decode("utf-8-sig"))
+        servers = cfg.get("mcpServers", {}) if isinstance(cfg, dict) else None
+        if not isinstance(servers, dict) or any(name in servers for name in CLAUDE_STASH_NAMES):
+            raise ValueError("Claude global registrations must remain disabled for stash migration and rollback.")
+        yield
+
+
 def update_toml(data, ids, adapter, python):
     text = data.decode("utf-8-sig")
     obj = tomllib.loads(text)
@@ -275,6 +342,8 @@ def paths(args):
     local = Path(os.environ.get("LOCALAPPDATA", home / "AppData/Local")) / "CommandCenter" / "shared-mcp"
     return {
         "codex": args.codex or home / ".codex/config.toml",
+        "stash": args.stash or Path(os.environ.get("CC_ROOT") or Path(__file__).resolve().parents[1]) / "disabled-extensions.json",
+        "claude": home / ".claude.json",
         "opencode": args.opencode or home / ".config/opencode/opencode.json",
         "adapter": local / "shared-mcp-adapter.py",
         "registry": local / "registry.json",
@@ -366,7 +435,7 @@ def current_sid():
     return sid
 
 
-def validate_config_acl(file, allow_inherited_read=False, handle=None):
+def validate_config_acl(file, allow_inherited_read=False, handle=None, stash=False):
     if os.name != "nt":
         raise RuntimeError("Windows ACL validation is required before config replacement.")
     advapi = ctypes.WinDLL("advapi32", use_last_error=True)
@@ -415,7 +484,8 @@ def validate_config_acl(file, allow_inherited_read=False, handle=None):
             if sid not in allowed:
                 flags = ctypes.c_ubyte.from_address(ace.value + 1).value
                 mask = wintypes.DWORD.from_address(ace.value + 4).value
-                if allow_inherited_read and flags & 0x10 and not (mask & ~0x1200A9):
+                permitted = 0x1301BF if stash and sid == "S-1-5-11" else 0x1200A9
+                if allow_inherited_read and flags & 0x10 and not (mask & ~permitted):
                     inherited_read = True
                     continue
                 raise RuntimeError(f"{file} grants access to an unsupported principal: {sid}.")
@@ -629,7 +699,7 @@ def txf_transaction():
         close(transaction)
 
 
-def txf_step(transaction, target, before, after, *, client=False, recovering=False):
+def txf_step(transaction, target, before, after, *, client=False, recovering=False, stash=False):
     import msvcrt
     reject_links(target)
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -667,7 +737,16 @@ def txf_step(transaction, target, before, after, *, client=False, recovering=Fal
         length = final_name(handle, name, len(name), 0)
         if not length:
             raise ctypes.WinError(ctypes.get_last_error())
-        if length >= len(name) or os.path.normcase(name.value.removeprefix("\\\\?\\")) != os.path.normcase(os.path.abspath(target)):
+        long_path = kernel.GetLongPathNameW
+        long_path.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+        long_path.restype = wintypes.DWORD
+        expanded = ctypes.create_unicode_buffer(32768)
+        expected_path = target.parent if new else target
+        count = long_path(os.path.abspath(expected_path), expanded, len(expanded))
+        if not count:
+            raise ctypes.WinError(ctypes.get_last_error())
+        expected = os.path.join(expanded.value, target.name) if new else expanded.value
+        if max(length, count) >= len(name) or os.path.normcase(name.value.removeprefix("\\\\?\\")) != os.path.normcase(expected.removeprefix("\\\\?\\")):
             raise RuntimeError(f"Transaction handle points outside the expected path: {target}")
         meta = os.fstat(fd)
         attributes = wintypes.DWORD * 2
@@ -679,8 +758,8 @@ def txf_step(transaction, target, before, after, *, client=False, recovering=Fal
             raise ctypes.WinError(ctypes.get_last_error())
         if not stat.S_ISREG(meta.st_mode) or meta.st_nlink != 1 or tag[0] & 0x400:
             raise RuntimeError(f"Expected a single-link regular file: {target}")
-        if client:
-            validate_config_acl(target, allow_inherited_read=True, handle=handle)
+        if client or stash:
+            validate_config_acl(target, allow_inherited_read=True, handle=handle, stash=stash)
         current = None if new else stream.read()
         if recovering and current == after:
             return
@@ -702,9 +781,6 @@ def txf_step(transaction, target, before, after, *, client=False, recovering=Fal
 def migrate(paths):
     for key in ("codex", "opencode", "adapter", "registry", "journal"):
         reject_links(paths[key])
-    for key in ("codex", "opencode", "adapter", "registry"):
-        if paths[key].parent.stat().st_dev != paths["journal"].parent.stat().st_dev:
-            raise RuntimeError(f"{paths[key]} is on a different volume from private transaction storage.")
     repair_journal_tail(paths["journal"])
     records = read_journal(paths["journal"]) if paths["journal"].exists() else []
     _, states = transaction_states(records)
@@ -719,9 +795,14 @@ def migrate(paths):
     if not paths["source_adapter"].is_file():
         raise ValueError("The shared adapter source is missing from this installation.")
     codex_original, open_original = read(paths["codex"]), read(paths["opencode"])
-    codex_entries, codex_new = update_toml(codex_original, NAME_IDS, paths["adapter"], sys.executable)
+    stash_original = None
+    if "stash" in paths:
+        reject_links(paths["stash"])
+        stash_original = read(paths["stash"])
+    codex_names = (*NAME_IDS, "gimp") if stash_original is not None else NAME_IDS
+    codex_entries, codex_new = update_toml(codex_original, codex_names, paths["adapter"], sys.executable)
     open_entries, open_new = update_json(open_original, NAME_IDS, paths["adapter"], sys.executable)
-    if codex_entries != open_entries:
+    if any(codex_entries[name] != open_entries[name] for name in NAME_IDS):
         raise ValueError("Codex and OpenCode registrations are not semantically identical.")
     registry, registry_original = load_current_registry(paths["registry"])
     for name, entry in codex_entries.items():
@@ -737,22 +818,30 @@ def migrate(paths):
         "registry": (registry_original, registry_new),
         "adapter": (adapter_original, adapter_new),
     }
+    if stash_original is not None:
+        validate_config_acl(paths["stash"], allow_inherited_read=True, stash=True)
+        stash_new = update_stash(stash_original, paths["claude"], codex_entries, paths["adapter"], sys.executable)
+        participants["stash"] = (stash_original, stash_new)
+        requires_txf = True
     txid = str(uuid.uuid4())
     steps = {key: {"path": str(paths[key]), "before": sha(snap(old)), "after": sha(new), "backup": str(displaced_for(paths, paths[key], txid, key)), "snapshot": protect(snap(old))} for key, (old, new) in participants.items()}
     if requires_txf:
         for key, (old, new) in participants.items():
             steps[key]["absent"] = old is None
             steps[key]["intended"] = protect(new)
-        with txf_transaction() as transaction:
+        with (disabled_claude_guard(paths["claude"]) if "stash" in participants else nullcontext()), txf_transaction() as transaction:
             for key, (old, new) in participants.items():
-                txf_step(transaction, paths[key], old, new, client=key in ("codex", "opencode"))
+                txf_step(transaction, paths[key], old, new, client=key in ("codex", "opencode"), stash=key == "stash")
             journal(paths["journal"], {"id": txid, "event": "prepared", "backend": "txf", "steps": steps})
     else:
+        for key in participants:
+            if paths[key].parent.stat().st_dev != paths["journal"].parent.stat().st_dev:
+                raise RuntimeError(f"{paths[key]} is on a different volume from private transaction storage.")
         journal(paths["journal"], {"id": txid, "event": "prepared", "steps": steps})
         for key in ("adapter", "registry", "codex", "opencode"):
             apply_step(paths, txid, key, participants[key][1], steps[key]["before"])
     journal(paths["journal"], {"id": txid, "event": "committed"})
-    print(f"Migrated prisma-mcp and reevesagents. Transaction: {txid}")
+    print(f"Migrated {', '.join(codex_names)}. Transaction: {txid}")
     return txid
 
 
@@ -770,11 +859,13 @@ def recover(paths, txid):
     if latest != txid:
         raise RuntimeError(f"Only the latest non-rolled-back transaction can be recovered: {latest}")
     prepared = next((r for r in reversed(records) if r.get("id") == txid and r.get("event") == "prepared"), None)
-    if not prepared or not isinstance(prepared.get("steps"), dict) or set(prepared["steps"]) != {"codex", "opencode", "registry", "adapter"}:
+    if not prepared or not isinstance(prepared.get("steps"), dict) or set(prepared["steps"]) not in ({"codex", "opencode", "registry", "adapter"}, {"codex", "opencode", "registry", "adapter", "stash"}):
         raise ValueError("Prepared transaction was not found or has an unsupported journal schema.")
+    if "stash" in prepared["steps"] and (prepared.get("backend") != "txf" or "stash" not in paths):
+        raise ValueError("Claude stash recovery requires its fixed path and transactional journal.")
     allowed_paths = {key: paths[key].resolve() for key in prepared["steps"]}
     if prepared.get("backend") == "txf":
-        with txf_transaction() as transaction:
+        with (disabled_claude_guard(paths["claude"]) if "stash" in prepared["steps"] else nullcontext()), txf_transaction() as transaction:
             for key, step in prepared["steps"].items():
                 if Path(step["path"]).resolve() != allowed_paths[key]:
                     raise ValueError("Journal participant path does not match the configured fixed path.")
@@ -783,7 +874,7 @@ def recover(paths, txid):
                 if sha(original) != step["before"] or sha(intended) != step["after"]:
                     raise ValueError(f"Encrypted {key} snapshot failed its hash check.")
                 txf_step(transaction, paths[key], intended, None if step["absent"] else original,
-                         client=key in ("codex", "opencode"), recovering=True)
+                         client=key in ("codex", "opencode"), stash=key == "stash", recovering=True)
         journal(paths["journal"], {"id": txid, "event": "rolled-back"})
         print(f"Rolled back transaction {txid}.")
         return
@@ -838,6 +929,7 @@ def recover(paths, txid):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--codex", type=Path)
+    parser.add_argument("--stash", type=Path)
     parser.add_argument("--opencode", type=Path)
     parser.add_argument("--recover", metavar="TRANSACTION_ID")
     args = parser.parse_args()

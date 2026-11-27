@@ -128,6 +128,72 @@ class SharedMcpMigrateTests(unittest.TestCase):
         self.assertFalse(list(journal.parent.glob("*.displaced")))
         self.assertFalse(list(journal.parent.glob("*.cc-*")))
 
+    def make_stash_paths(self, root, stash_permissions="M", validate_stash=True):
+        paths, originals = self.make_paths(root)
+        codex_text = originals["codex"].decode()
+        codex_text += (
+            "\n[mcp_servers.gimp]\n"
+            "enabled = false\n"
+            'command = "node"\n'
+            'args = ["gimp-original"]\n'
+        )
+        originals["codex"] = codex_text.encode()
+        paths["codex"].write_bytes(originals["codex"])
+        MIGRATE.secure_private_file(paths["codex"])
+        stash_dir = root / "claude-stash"
+        stash_dir.mkdir()
+        MIGRATE.secure_private_dir(stash_dir)
+        subprocess.run(
+            [str(MIGRATE.system_tool("icacls.exe")), str(stash_dir), "/grant:r", f"*S-1-5-11:(OI)(CI){stash_permissions}"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        stash = stash_dir / "claude-stash.json"
+        claude = root / ".claude.json"
+        stash_data = {
+            "version": 1,
+            "entries": [
+                {
+                    "id": "stash-gimp-01",
+                    "idx": 2,
+                    "kind": "mcp",
+                    "app": "Claude Code",
+                    "file": str(claude),
+                    "scope": ["mcpServers"],
+                    "name": "gimp",
+                    "cfg": {"type": "stdio", "command": "node", "args": ["gimp-original"], "env": {}},
+                    "other": {"preserve": True},
+                },
+                {
+                    "id": "stash-reeves-02",
+                    "idx": 4,
+                    "kind": "mcp",
+                    "app": "Claude Code",
+                    "file": str(claude),
+                    "scope": ["mcpServers"],
+                    "name": "reevesagents",
+                    "cfg": {"type": "stdio", "command": "node", "args": ["reevesagents-old-sentinel"], "env": {}},
+                    "other": {"preserve": "reeves"},
+                },
+                {"id": "unrelated-03", "idx": 6, "kind": "mcp", "app": "Claude Code", "file": str(claude), "scope": ["mcpServers"], "name": "unrelated", "cfg": {"type": "stdio", "command": "node", "args": ["unchanged"], "env": {}}, "metadata": [1, 2, 3]},
+            ],
+            "settings": {"preserve": "all"},
+        }
+        stash_bytes = b"\xef\xbb\xbf" + json.dumps(stash_data, indent=2).encode("utf-8")
+        stash.write_bytes(stash_bytes)
+        claude_bytes = json.dumps({"mcpServers": {}, "metadata": {"untouched": True}}, indent=2).encode()
+        claude.write_bytes(claude_bytes)
+        if validate_stash:
+            self.assertTrue(MIGRATE.validate_config_acl(stash, allow_inherited_read=True, stash=True))
+        MIGRATE.secure_private_file(claude)
+        originals["stash"] = stash_bytes
+        originals["claude"] = claude_bytes
+        paths["stash"] = stash
+        paths["claude"] = claude
+        return paths, originals, stash_data, claude_bytes
+
     def test_inherited_broad_read_uses_txf_encryption_and_rolls_back(self):
         with tempfile.TemporaryDirectory() as directory:
             paths, originals = self.make_paths(Path(directory), inherited_read=True)
@@ -177,6 +243,45 @@ class SharedMcpMigrateTests(unittest.TestCase):
             self.assertFalse(list(paths["journal"].parent.glob("*.displaced")))
             self.assertFalse(list(paths["journal"].parent.glob("*.cc-*")))
 
+    def test_migrates_claude_stash_entries_and_rollback_preserves_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, originals, stash_before, claude_before = self.make_stash_paths(Path(directory))
+            txid = self.run_migration(paths)
+            codex = MIGRATE.tomllib.loads(paths["codex"].read_text(encoding="utf-8"))
+            stash_bytes = paths["stash"].read_bytes()
+            self.assertTrue(stash_bytes.startswith(b"\xef\xbb\xbf"))
+            stash_after = json.loads(stash_bytes.decode("utf-8-sig"))
+            expected_stash = copy.deepcopy(stash_before)
+            for row in expected_stash["entries"]:
+                if row.get("name") in ("gimp", "reevesagents"):
+                    row["cfg"]["command"] = sys.executable
+                    row["cfg"]["args"] = [str(paths["adapter"]), row["name"]]
+                    self.assertEqual(codex["mcp_servers"][row["name"]]["command"], sys.executable)
+                    self.assertEqual(codex["mcp_servers"][row["name"]]["args"], row["cfg"]["args"])
+            self.assertEqual(stash_after, expected_stash)
+            self.assertEqual(paths["claude"].read_bytes(), claude_before)
+            self.assertTrue(MIGRATE.validate_config_acl(paths["stash"], allow_inherited_read=True, stash=True))
+            self.assertEqual(paths["adapter"].read_bytes(), paths["source_adapter"].read_bytes())
+            self.assertIn({"id": txid, "event": "committed"}, self.journal(paths["journal"]))
+            self.assertIsNone(MIGRATE.recover(paths, txid))
+            self.assert_originals(paths, originals)
+            self.assertEqual(paths["stash"].read_bytes(), originals["stash"])
+            self.assertEqual(paths["claude"].read_bytes(), originals["claude"])
+            self.assertTrue(MIGRATE.validate_config_acl(paths["stash"], allow_inherited_read=True, stash=True))
+
+    def test_stash_rejects_inherited_authenticated_users_write_dac_and_owner(self):
+        for permission in ("WDAC", "WO"):
+            with self.subTest(permission=permission), tempfile.TemporaryDirectory() as directory:
+                paths, _, _, _ = self.make_stash_paths(
+                    Path(directory), stash_permissions=permission, validate_stash=False
+                )
+                before = {key: paths[key].read_bytes() for key in (*self.keys, "stash", "claude")}
+                with self.assertRaisesRegex(RuntimeError, "unsupported principal: S-1-5-11"):
+                    self.run_migration(paths)
+                after = {key: paths[key].read_bytes() for key in (*self.keys, "stash", "claude")}
+                self.assertEqual(after, before)
+                self.assertFalse(paths["journal"].exists())
+
     def test_txf_refuses_inherited_broad_write_access(self):
         with tempfile.TemporaryDirectory() as directory:
             paths, _ = self.make_paths(Path(directory), inherited_write=True)
@@ -210,6 +315,33 @@ class SharedMcpMigrateTests(unittest.TestCase):
             self.assertFalse(paths["journal"].exists())
             self.assertFalse(list(paths["journal"].parent.glob("*.displaced")))
             self.assertFalse(list(paths["journal"].parent.glob("*.cc-*")))
+
+    def test_txf_accepts_short_path_with_case_variation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            long_root = Path(directory) / "Long Path Fixture"
+            long_root.mkdir()
+            paths, _ = self.make_paths(long_root, inherited_read=True)
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            get_short = kernel32.GetShortPathNameW
+            get_short.argtypes = (ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32)
+            get_short.restype = ctypes.c_uint32
+            short_buffer = ctypes.create_unicode_buffer(32768)
+            length = get_short(str(paths["codex"]), short_buffer, len(short_buffer))
+            self.assertGreater(length, 0)
+            short_target = Path(short_buffer.value.swapcase())
+            if os.path.normcase(str(short_target)) == os.path.normcase(str(paths["codex"])):
+                self.skipTest("The runner volume does not provide a distinct 8.3 path for this fixture")
+            txf_step = MIGRATE.txf_step
+
+            def use_short_target(transaction, target, before, after, **options):
+                if Path(target) == paths["codex"]:
+                    target = short_target
+                return txf_step(transaction, target, before, after, **options)
+
+            with mock.patch.object(MIGRATE, "txf_step", side_effect=use_short_target):
+                self.run_migration(paths)
+            codex = MIGRATE.tomllib.loads(paths["codex"].read_text(encoding="utf-8"))
+            self.assertEqual(codex["mcp_servers"]["prisma-mcp"]["args"], [str(paths["adapter"]), "prisma-mcp"])
 
     @unittest.skipUnless(os.name == "nt", "TxF writer locking is Windows-specific")
     def test_txf_open_nontransactional_writer_blocks_transactional_write(self):
