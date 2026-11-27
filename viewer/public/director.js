@@ -5,10 +5,12 @@ const PR={1:'P1 highest',2:'P2 high',3:'P3 normal',4:'P4 low',5:'P5 lowest'};
 const LIVE=['waiting','starting','running'];
 const SAY=x=>x==='running'?'working':x;
 const CLS={done:'ok',running:'stage-working',starting:'stage-working',failed:'bad',interrupted:'warn'};
-let d=null,busy=0,saving=0,msg='',err='',advOpen=false,setOpen=false,curId='',orchGen=0,setup=null,setupAt=0,models=null,modelsAt=0,orch=null,budget=null,board=null,stick=true,tkOpen=false,bdOpen=false,buOpen=false;
+let d=null,busy=0,saving=0,msg='',err='',panel='',defaultsOpen=false,curId='',orchGen=0,setup=null,setupAt=0,models=null,modelsAt=0,modelsGen=0,orch=null,budget=null,board=null,stick=true;
+const openProviders=new Set();
 const tasksEl=document.createElement('div');tasksEl.id='dr-tasks';
 const NAMES={freebuff:'Freebuff',codex:'Codex',cursor:'Cursor',opencode:'OpenCode',claude:'Claude',antigravity:'Antigravity'};
 const ORDER=['freebuff','codex','cursor','opencode','claude','antigravity'];
+const modelInput=(attrs,id,value,placeholder,rows,disabled=false)=>'<span class="model-picker"><input '+attrs+' data-model-list="'+esc(id)+'" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="'+esc(id)+'-menu" autocomplete="off" value="'+esc(value||'')+'" placeholder="'+esc(placeholder)+'"'+(disabled?' disabled':'')+'><span class="model-menu" id="'+esc(id)+'-menu" role="listbox" hidden></span><datalist id="'+esc(id)+'">'+rows.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name||r.id)+'</option>').join('')+'</datalist></span>';
 
 const pill=(t,cls)=>'<span class="dr-pill '+(cls||'')+'">'+esc(t)+'</span>';
 const btn=(a,id,t)=>'<button class="pill" data-d="'+a+'" data-id="'+esc(id)+'">'+t+'</button>';
@@ -45,10 +47,10 @@ function ghCard(g){
 function picker(){
  if(!orch)return '<div class="tk-empty">Reading the director settings…</div>';
  const o=orch.orchestrator||{},us=usable().filter(p=>p!=='antigravity'),cur=us.includes(o.provider)?o.provider:'',rows=(cur&&models&&models[cur])||[],ef=(orch.efforts||{})[cur]||[];
- return '<div class="hl">Director</div><div class="dr-grid"><label>Provider<select id="dr-prov">'+(cur?'':'<option value="">Choose…</option>')+us.map(p=>'<option value="'+esc(p)+'"'+(p===cur?' selected':'')+'>'+esc(p)+'</option>').join('')+'</select></label>'
-  +'<label>Model (pick one or type any model id)<input id="dr-model" list="dr-models" value="'+esc(cur?o.model||'':'')+'" placeholder="'+(cur?'provider default':'choose a provider first')+'"'+(cur?'':' disabled')+'><datalist id="dr-models">'+rows.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name||r.id)+'</option>').join('')+'</datalist></label>'
-  +'<label>Reasoning level<select id="dr-eff"'+(ef.length?'':' disabled')+'><option value="">default</option>'+ef.map(e=>'<option value="'+e+'"'+(o.effort===e?' selected':'')+'>'+e+'</option>').join('')+'</select></label></div>'
-  +'<div class="m">'+(us.length?(o.mode!=='orchestrated'?'The director is off. Choose a provider to turn it on. ':'')+'It plans the work, hands tasks to the models ticked below, checks their reports and answers you. Press Enter or click away after typing a model to save it.':'No provider is turned on and installed. Turn one on in Setup.')+'</div>';
+ return '<div class="dr-picker"><label>Provider<select id="dr-prov">'+(cur?'':'<option value="">Choose…</option>')+us.map(p=>'<option value="'+esc(p)+'"'+(p===cur?' selected':'')+'>'+esc(NAMES[p]||p)+'</option>').join('')+'</select></label>'
+  +'<label>Reasoning<select id="dr-eff"'+(ef.length?'':' disabled')+'><option value="">Default</option>'+ef.map(e=>'<option value="'+e+'"'+(o.effort===e?' selected':'')+'>'+e+'</option>').join('')+'</select></label>'
+  +'<label class="dr-picker-model">Model'+modelInput('id="dr-model"','dr-models',cur?o.model:'',cur?'Provider default':'Choose a provider first',rows,!cur)+'<span class="dr-field-hint">Select or type a model ID. Saved when you leave the field.</span></label></div>'
+  +(!us.length?'<div class="m">No provider is turned on and installed. Turn one on in Setup.</div>':o.mode!=='orchestrated'?'<div class="m">Choose a provider to turn the Director on.</div>':!cur?'<div class="m">The panel chooses an available Director provider until you select one.</div>':'');
 }
 
 function team(){
@@ -59,9 +61,9 @@ function team(){
   for(const m of tm)if(m.provider===p&&!ids.has(m.model))rows.push({id:m.model,name:m.model});
   const ef=(orch.efforts||{})[p]||[],stale=(d.goals||[]).some(g=>(g.tasks||[]).some(t=>t.login===p&&t.status==='failed')),s=stale?false:sp[p]&&sp[p].signedIn;
   const row=r=>{const k=p+'|'+r.id,m=on(p,r.id);return '<div class="dr-tm"><label><input type="checkbox" data-tm="'+esc(k)+'"'+(m?' checked':'')+'> '+esc(r.name||r.id)+' <span class="m">'+(r.name&&r.name!==r.id?esc(r.id):'')+'</span></label>'+(ef.length?'<select data-te="'+esc(k)+'" title="Reasoning level"'+(m?'':' disabled')+'><option value="">default level</option>'+ef.map(e=>'<option value="'+e+'"'+(m&&m.effort===e?' selected':'')+'>'+e+'</option>').join('')+'</select>':'<span class="m">no level</span>')+'</div>'};
-  return '<div class="dr-tp"><div><b>'+esc(p)+'</b> '+(s===true?pill('signed in','ok'):s===false?pill(stale?'login expired':'not signed in','warn')+' <button class="pill" data-d="login" data-p="'+esc(p)+'">Log in</button>':pill('sign-in not checked',''))+'</div><div class="dr-tl">'+(rows.length?rows.map(row).join(''):'<div class="m">'+(models?'No models listed.':'Reading the model list…')+'</div>')+'</div></div>';
+  return '<details class="dr-tp" data-provider="'+esc(p)+'"'+(openProviders.has(p)?' open':'')+'><summary><b>'+esc(NAMES[p]||p)+'</b> <span class="m">'+tm.filter(m=>m.provider===p).length+' selected</span></summary><div>'+(s===true?pill('signed in','ok'):s===false?pill(stale?'login expired':'not signed in','warn')+' <button class="pill" data-d="login" data-p="'+esc(p)+'">Log in</button>':pill('sign-in not checked',''))+'</div><div class="dr-tl">'+(rows.length?rows.map(row).join(''):'<div class="m">'+(models?'No models listed.':'Reading the model list…')+'</div>')+'</div></details>';
  });
- return '<div class="m">Tick the models the director may hand work to, and set how hard each one thinks. Nothing ticked means it may use any model of a provider that is on. Every provider signs in through its own login; API-key variables are removed from what agents run with.</div><div class="dr-grid">'+(cols.join('')||'<div class="tk-empty">No provider is on.</div>')+'</div>';
+ return '<div class="m">Choose allowed models by provider. If none are selected, any enabled provider model may be used.</div><div class="dr-providers">'+(cols.join('')||'<div class="tk-empty">No provider is on.</div>')+'</div>';
 }
 
 function money(b){
@@ -73,7 +75,7 @@ function money(b){
   else if(p==='cursor'&&e.enabled)lines=[e.signedIn?'signed in':'not signed in'];
   else if(p==='opencode'&&e.enabled)lines=e.today?['spent today '+esc(e.today.cost),'last 7 days '+esc(e.week&&e.week.cost)]:[];
   else if(e.enabled)lines=[esc(e.note||'')];
-  return card(NAMES[p],esc(state),'running '+esc(e.running)+' of '+esc(e.max),lines)}).join('')}
+  return '<div class="dr-usage-row"><div class="dr-usage-head"><b>'+esc(NAMES[p])+'</b><span class="dr-usage-state'+(e.enabled&&e.installed?' is-on':'')+'">'+esc(state)+'</span></div><div class="dr-usage-meta">'+esc(e.running)+' / '+esc(e.max)+' running</div>'+(lines.length?'<div class="dr-usage-details">'+lines.map(x=>'<div>'+x+'</div>').join('')+'</div>':'')+'</div>'}).join('')}
 
 function boardHtml(){
  if(!Array.isArray(board))return '<div class="tk-empty">Board not read yet.</div>';
@@ -84,7 +86,7 @@ function workers(){
  if(!orch)return '';
  const w=orch.workerModels||{};
  return '<div class="hl">Default model for each provider</div><div class="m">Used when a task goes to that provider and nothing more specific is asked. Leave blank to use the model from Setup.</div><div class="dr-grid">'
-  +usable().map(p=>'<label>'+esc(NAMES[p]||p)+'<input data-wm="'+esc(p)+'" list="dr-wl-'+esc(p)+'" value="'+esc(w[p]||'')+'" placeholder="provider default"><datalist id="dr-wl-'+esc(p)+'">'+(((models&&models[p])||[]).map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name||r.id)+'</option>').join(''))+'</datalist></label>').join('')+'</div>';
+  +usable().map(p=>'<label>'+esc(NAMES[p]||p)+modelInput('id="dr-worker-'+esc(p)+'" data-wm="'+esc(p)+'"','dr-wl-'+p,w[p],'Provider default',(models&&models[p])||[])+'</label>').join('')+'</div>';
 }
 
 function status(g){
@@ -124,16 +126,17 @@ function work(g){
 
 function build(){
  const g=current(),need=d.needsYou||[],dis=d.dispatcher,gs=(d.goals||[]).slice().sort((a,b)=>Date.parse(b.updatedAt)-Date.parse(a.updatedAt));
- const tm=(orch&&orch.team)||[],o=(orch&&orch.orchestrator)||{};
- let h='<div id="dr-root" class="tk"><div class="tk-hello">Director</div><div class="m">Tell the director what you want. It plans the work, hands it to the models you ticked, collects their reports and keeps you updated here.</div>';
+ let h='<div id="dr-root" class="tk director-page"><div class="cc-pagehead"><div><div class="cc-eyebrow">COMMAND CENTER / DIRECTOR</div><div class="tk-hello">Your workspace</div><p class="cc-lead">Set a goal, follow the work, and keep your team moving.</p></div></div>';
  if(d.config&&d.config.readError)h+='<div class="tk-bad"><b>config.json could not be read</b> ('+esc(d.config.readError)+'). The panel is using defaults. Saving a setting first copies the unreadable file to config.json.unreadable-*, so nothing is lost.</div>';
  if(dis&&(!dis.lastTick||Date.now()-dis.lastTick>15000||dis.error))h+='<div class="tk-bad"><b>The task dispatcher is not running.</b> '+esc(dis.error||'')+' Waiting tasks will not start.</div>';
  if(err)h+='<div class="tk-err">'+esc(err)+'</div>';
  if(msg)h+='<div class="tk-ok">'+esc(msg)+'</div>';
- h+='<details id="dr-set" class="dr-ev"'+(setOpen?' open':'')+'><summary>Director and models: '+esc(o.provider?o.provider+(o.model?' '+o.model:'')+(o.effort?' ('+o.effort+')':''):'no director chosen')+', '+(tm.length?tm.length+' model(s) ticked':'any model')+'</summary><div class="dr-form">'+picker()+'</div><div class="dr-form"><div class="hl">Models the director may use</div>'+team()+'</div><div class="dr-form">'+workers()+'</div></details>';
- h+='<div class="dr-act"><label>Chat <select id="dr-chat"><option value="new"'+(g?'':' selected')+'>New chat</option>'+gs.map(x=>'<option value="'+esc(x.id)+'"'+(g&&x.id===g.id?' selected':'')+'>'+esc(x.title.slice(0,50))+' · '+when(x.updatedAt)+'</option>').join('')+'</select></label>'+(g?pill(g.stageLabel,'stage-'+g.stage):'')+'</div>'+status(g);
+ const section=(id)=>panel===id?' open':' hidden';
+ const settings='<details id="dr-set" class="dr-ev"'+section('models')+'><summary>Director and models</summary><div class="dr-model-heading"><h3>Director and models</h3><button type="button" class="pill" data-d="models-refresh">Refresh models</button></div><div class="dr-form">'+picker()+'</div><div class="dr-form"><div class="hl">Models the director may use</div>'+team()+'</div><details class="dr-defaults"'+(defaultsOpen?' open':'')+'><summary>Default models by provider</summary><div class="dr-form">'+workers()+'</div></details></details>';
+ h+='<div class="director-layout"><div class="director-main">';
+ h+='<div class="dr-conversation-head"><div><span class="dr-overline">CONVERSATION</span><h2>Director</h2></div><label>Chat <select id="dr-chat"><option value="new"'+(g?'':' selected')+'>New chat</option>'+gs.map(x=>'<option value="'+esc(x.id)+'"'+(g&&x.id===g.id?' selected':'')+'>'+esc(x.title.slice(0,50))+' · '+when(x.updatedAt)+'</option>').join('')+'</select></label>'+(g?pill(g.stageLabel,'stage-'+g.stage):'')+'</div>'+status(g);
  h+='<div id="dr-thread">'+(g&&g.thread&&g.thread.length?g.thread.map(bubble).join(''):'<div class="tk-empty">Nothing here yet. Tell the director what you want done.</div>')+'</div>';
- h+='<form id="dr-form" class="dr-form dr-comp"><textarea id="dr-text" rows="3" placeholder="'+(g?'Reply to the director…':'Tell the director what you want done…')+'"></textarea><div class="dr-act"><button class="pill" id="dr-go" type="submit">Send</button><span id="dr-msg" class="m">'+(g&&g.steering?esc(g.steering.why)+' ':'')+'Enter sends, Shift+Enter adds a line.</span></div></form>';
+ h+='<form id="dr-form" class="dr-form dr-comp"><label for="dr-text">'+(g?'Add a follow-up':'Describe the goal')+'</label><textarea id="dr-text" rows="3" placeholder="'+(g?'Add an instruction for the goal…':'What would you like the team to do?')+'"></textarea><div class="dr-act"><button class="pill primary" id="dr-go" type="submit">Send to Director →</button><span id="dr-msg" class="m">'+(g&&g.steering?esc(g.steering.why)+' ':'')+'Enter sends · Shift+Enter adds a line.</span></div></form>';
  if(g){const b=[];
   if(g.controls.canPause)b.push(btn('pause',g.id,'Pause'));
   if(g.controls.canResume)b.push(btn('resume',g.id,'Resume'));
@@ -141,16 +144,17 @@ function build(){
   if(g.status==='active')b.push(btn('done',g.id,'Mark done'));
   if(b.length)h+='<div class="dr-act">'+b.join(' ')+'</div>';
   h+=work(g);}
+ h+='</div><div class="director-side"><div class="director-side-head"><span class="dr-overline">WORKSPACE</span><h2>Team &amp; controls</h2><p>Everything you need alongside the conversation.</p></div><div class="director-controls">'+[['models','Models'],['tasks','Tasks'],['board','Notes'],['budget','Usage'],['advanced','Settings']].map(([id,label])=>'<button type="button" id="dr-panel-'+id+'" class="director-control'+(panel===id?' selected':'')+'" data-panel="'+id+'" aria-pressed="'+(panel===id)+'">'+label+'</button>').join('')+'</div>'+(!panel?'<div class="director-placeholder"><b>Choose a view</b><p>Manage models, follow tasks, or check usage without leaving the conversation.</p></div>':'')+settings;
  if(need.length)h+='<div class="tk-h">Needs you</div>'+need.map(n=>'<div class="tk-att"><div><b>'+esc(n.goal)+'</b></div><div class="tk-note">'+esc(n.detail)+' '+needBtn(n)+'</div></div>').join('');
- h+='<details id="dr-tk" class="dr-ev"'+(tkOpen?' open':'')+'><summary>All tasks (the full tree: stop, retry, read each log)</summary><div id="dr-tasks"></div></details>';
- h+='<details id="dr-bd" class="dr-ev"'+(bdOpen?' open':'')+'><summary>Team board (the agents write here)</summary>'+boardHtml()+'</details>';
- h+='<details id="dr-bu" class="dr-ev"'+(buOpen?' open':'')+'><summary>Budget right now</summary>'+(budget&&budget.providers?'<div class="cards">'+money(budget)+'</div>':'<div class="empty">Budget not available.</div>')+'</details>';
+ h+='<details id="dr-tk" class="dr-ev"'+section('tasks')+'><summary>Tasks</summary><h3>Tasks</h3><div id="dr-tasks"></div></details>';
+ h+='<details id="dr-bd" class="dr-ev"'+section('board')+'><summary>Team notes</summary><h3>Team notes</h3>'+boardHtml()+'</details>';
+ h+='<details id="dr-bu" class="dr-ev"'+section('budget')+'><summary>Usage</summary><h3>Provider usage</h3><p class="dr-panel-hint">Availability and current capacity by provider.</p>'+(budget&&budget.providers?'<div class="dr-usage-list">'+money(budget)+'</div>':'<div class="empty">Usage not available.</div>')+'</details>';
  const ghErr=d.github&&d.github.error;
- h+='<details id="dr-adv" class="dr-ev"'+(advOpen?' open':'')+'><summary>Advanced: folder, limits, machines, pull requests</summary>'
+ h+='<details id="dr-adv" class="dr-ev"'+section('advanced')+'><summary>Settings</summary><h3>Settings</h3>'
   +'<div class="dr-form"><div class="hl">Where the director works (used by a new chat)</div><div class="dr-grid"><label>Folder<input id="dr-dir" value="'+esc((d.config&&d.config.projectDir)||'')+'"></label><label>Live tasks allowed<input id="dr-max" type="number" min="1" max="12" value="4"></label><label>Task minutes<input id="dr-min" type="number" min="5" max="1440" value="120"></label><label>Priority<select id="dr-pri">'+[1,2,3,4,5].map(n=>'<option value="'+n+'"'+(n===3?' selected':'')+'>'+PR[n]+'</option>').join('')+'</select></label></div></div>'
   +'<div class="tk-h">Machines</div>'+machinesCard(d.machines)
   +'<div class="tk-h">Pull requests and CI</div>'+(ghErr?'<div class="tk-warn">'+esc(ghErr)+'</div>':ghCard(d.github))
-  +'</details></div>';
+  +'</details></div></div></div>';
  return h;
 }
 
@@ -160,9 +164,8 @@ function keep(){
  for(const id of KEEP){const x=$(id);if(x)k.vals[id]=x.value}
  const f=document.activeElement,el=$('prov');
  if(f&&f.id&&el&&el.contains(f))k.focus={id:f.id,s:f.selectionStart,e:f.selectionEnd};
- const adv=$('dr-adv');if(adv)advOpen=adv.open;
- const set=$('dr-set');if(set)setOpen=set.open;
- for(const [id,f] of [['dr-tk',v=>tkOpen=v],['dr-bd',v=>bdOpen=v],['dr-bu',v=>buOpen=v]]){const x=$(id);if(x)f(x.open)}
+ for(const x of document.querySelectorAll('.dr-tp[data-provider]'))x.open?openProviders.add(x.dataset.provider):openProviders.delete(x.dataset.provider);
+ const defaults=document.querySelector('.dr-defaults');if(defaults)defaultsOpen=defaults.open;
  k.logs={};for(const p of tasksEl.querySelectorAll('pre[data-k]'))k.logs[p.dataset.k]=[p.scrollTop,p.scrollHeight-p.scrollTop-p.clientHeight<30];
  const th=$('dr-thread');k.th=th?{top:th.scrollTop,bottom:th.scrollHeight-th.scrollTop-th.clientHeight<30}:null;
  return k}
@@ -178,7 +181,7 @@ function draw(force){
  const el=$('prov');if(!el||tab!=='director')return;
  if(!d){el.innerHTML='<div class="empty">'+esc(err||'The director did not answer.')+'</div>';return}
  const f=document.activeElement;
- if(!force&&(saving||(f&&f.tagName==='SELECT'&&el.contains(f))))return;
+ if(!force&&(saving||(f&&el.contains(f)&&(f.tagName==='SELECT'||f.closest('.model-picker')))))return;
  const top=el.scrollTop,k=keep();el.innerHTML=build();const ph=$('dr-tasks');if(ph&&ph!==tasksEl)ph.replaceWith(tasksEl);restore(k);el.scrollTop=top}
 
 async function load(){
@@ -193,7 +196,7 @@ async function load(){
   if(bd.ok&&Array.isArray(bd.body))board=bd.body;
   if(s&&s.ok){setup=s.body;setupAt=Date.now()}
   draw();
-  if(!models&&Date.now()-modelsAt>60000){modelsAt=Date.now();j('/models').then(m=>{if(m.ok){models=m.body;draw()}})}
+  if(Date.now()-modelsAt>600000){modelsAt=Date.now();const gen=++modelsGen;j('/models').then(m=>{if(m.ok&&gen===modelsGen){models=m.body;draw()}})}
  }finally{busy=0}}
 
 PAGES.director=async()=>{await load()};
@@ -204,6 +207,22 @@ document.addEventListener('submit',e=>{
  e.target.id==='dr-mform'?addMachine():send()});
 
 document.addEventListener('keydown',e=>{if(tab==='director'&&e.target.id==='dr-text'&&e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('dr-form').requestSubmit()}});
+
+function modelMenu(input,filter){
+ const box=input.closest('.model-picker'),menu=box?.querySelector('.model-menu'),list=$(input.dataset.modelList);if(!menu||!list)return;
+ const q=filter?input.value.trim().toLowerCase():'',rows=[...list.options].filter(o=>!q||(o.value+' '+o.textContent).toLowerCase().includes(q));
+ menu.innerHTML=rows.length?rows.map(o=>'<button type="button" role="option" data-model-value="'+esc(o.value)+'"><span>'+esc(o.textContent||o.value)+'</span>'+(o.textContent&&o.textContent!==o.value?'<small>'+esc(o.value)+'</small>':'')+'</button>').join(''):'<span class="model-empty">No matches. You can enter a custom model ID.</span>';
+ menu.hidden=false;const rect=input.getBoundingClientRect(),viewport=$('prov').getBoundingClientRect();menu.classList.toggle('up',viewport.bottom-rect.bottom<250&&rect.top-viewport.top>viewport.bottom-rect.bottom);input.setAttribute('aria-expanded','true');
+}
+function closeModelMenu(input){const menu=input?.closest('.model-picker')?.querySelector('.model-menu');if(menu)menu.hidden=true;input?.setAttribute('aria-expanded','false')}
+document.addEventListener('focusin',e=>{if(tab==='director'&&e.target.dataset.modelList)modelMenu(e.target,false)});
+document.addEventListener('click',e=>{if(tab==='director'&&e.target.dataset.modelList&&e.target.closest('.model-picker').querySelector('.model-menu').hidden)modelMenu(e.target,false)});
+document.addEventListener('input',e=>{if(tab==='director'&&e.target.dataset.modelList&&!e.isComposing)modelMenu(e.target,true)});
+document.addEventListener('compositionend',e=>{if(tab==='director'&&e.target.dataset.modelList)modelMenu(e.target,true)});
+document.addEventListener('focusout',e=>{const box=e.target.closest('.model-picker');if(box&&!box.contains(e.relatedTarget))closeModelMenu(box.querySelector('input'))});
+document.addEventListener('pointerdown',e=>{const option=e.target.closest('[data-model-value]');if(!option||tab!=='director')return;e.preventDefault();const input=option.closest('.model-picker').querySelector('input');input.value=option.dataset.modelValue;closeModelMenu(input);input.dispatchEvent(new Event('change',{bubbles:true}))});
+document.addEventListener('keydown',e=>{const input=e.target;if(tab!=='director'||!input.dataset.modelList)return;const menu=input.closest('.model-picker').querySelector('.model-menu');if(e.key==='Escape'){closeModelMenu(input);e.preventDefault();return}if(e.key==='ArrowDown'){if(menu.hidden)modelMenu(input,false);const first=menu.querySelector('[role=option]');if(first){e.preventDefault();first.focus()}}});
+document.addEventListener('keydown',e=>{const option=e.target.closest('[data-model-value]');if(!option||tab!=='director')return;const box=option.closest('.model-picker'),input=box.querySelector('input'),items=[...box.querySelectorAll('[data-model-value]')],i=items.indexOf(option);if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();items[Math.max(0,Math.min(items.length-1,i+(e.key==='ArrowDown'?1:-1)))].focus()}else if(e.key==='Escape'){e.preventDefault();closeModelMenu(input);input.focus();closeModelMenu(input)}else if(e.key==='Enter'||e.key===' '){e.preventDefault();input.value=option.dataset.modelValue;input.focus();closeModelMenu(input);input.dispatchEvent(new Event('change',{bubbles:true}))}});
 
 const say=(cls,txt)=>{const m=$('dr-msg');if(m){m.className=cls;m.textContent=txt}if(cls==='tk-err')err=txt};
 
@@ -261,8 +280,10 @@ document.addEventListener('change',e=>{
  else if(t.id==='dr-chat'){curId=t.value;stick=true;draw(true)}});
 
 document.addEventListener('click',async e=>{
+ const control=e.target.closest('[data-panel]');if(control&&tab==='director'){panel=panel===control.dataset.panel?'':control.dataset.panel;draw(true);tree();return}
  const b=e.target.closest('[data-d]');if(!b||tab!=='director')return;
  const a=b.dataset.d,id=b.dataset.id;
+ if(a==='models-refresh'){b.disabled=true;modelsAt=Date.now();const gen=++modelsGen,r=await j('/models?fresh=1');if(gen!==modelsGen)return;if(r.ok){models=r.body;modelsAt=Date.now();msg='Model lists refreshed.';err=''}else{modelsAt=0;err=(r.body&&r.body.error)||'Could not refresh model lists.'}return draw(true)}
  if(a==='login'){const p=b.dataset.p,r=await j('/auth?p='+encodeURIComponent(p)+'&a=login',{method:'POST'});setupAt=0;const note=setup&&setup.providers&&setup.providers[p]&&setup.providers[p].loginNote;if(r.ok){msg='A terminal opened for the '+p+' login. Sign in in the browser, then press Retry on the task.'+(note?' '+note:'');err=''}else err='Could not open the login for '+p+'.';return load()}
  if(a==='gh-refresh'){b.disabled=true;await j('/director/github?fresh=1');return load()}
  if(a==='machine-check'){b.disabled=true;msg='Connecting…';await load();const r=await post('/director/machines/check',{id});msg=(r.body&&(r.body.why||('Connected: '+JSON.stringify(r.body.capabilities||{}).slice(0,200))))||'Done.';return load()}

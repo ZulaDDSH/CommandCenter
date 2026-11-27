@@ -10,6 +10,7 @@
 #vfeed{flex:1;overflow:auto;padding:18px 24px 40px;min-height:0}#vfeed pre{max-width:100%;overflow:auto}
 .srow{cursor:pointer}.srow:hover{background:var(--panel2)}
 .srow .st{max-width:min(640px,45vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}.srow .st .m{font-weight:400;color:var(--dim);font-size:12px}
+.session-open{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}.session-open:hover{text-decoration:underline}
 .sdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:baseline}
 .sst{white-space:nowrap}
 .sact{white-space:nowrap;text-align:right}.sact .pill{padding:2px 8px;font-size:12px;margin-left:4px}

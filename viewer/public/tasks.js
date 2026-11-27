@@ -36,9 +36,9 @@ function hoursCard(u){
  return card('Freebuff hours left',esc(t.left),'of '+esc(t.limit)+' h today',[bar(pct),t.flashHours!=null?'About '+esc(t.flashHours)+' h of DeepSeek work.':'','Cheaper models cost less of these hours.'])}
 
 function routeCard(r){
- if(!r||r.loading)return card('Next task goes to','…','',['Checking usage…']);
- if(r.error)return card('Next task goes to','unknown','',[esc(r.error)]);
- return card('Next task goes to',esc(P[r.provider]||r.provider),esc(r.model),[esc(r.why),'This is for Automatic coding tasks.'])}
+ if(!r||r.loading)return card('Automatic routing','…','',['Checking usage…']);
+ if(r.error)return card('Automatic routing','unknown','',[esc(r.error)]);
+ return card('Automatic routing',esc(P[r.provider]||r.provider),esc(r.model),[esc(r.why),'For automatic coding tasks; Director uses its configured or an available provider.'])}
 
 PAGES.home=async el=>{
  if(busy.home)return;busy.home=1;
@@ -52,8 +52,8 @@ PAGES.home=async el=>{
   const hello=bits.length?bits.join(', '):'All quiet. Nothing is running right now.';
   const per=['freebuff','codex','cursor','opencode','claude','antigravity'].map(p=>[p,work.filter(s=>s.provider===p).length]).filter(x=>x[1]);
   const att=tasks.filter(x=>x.note&&(x.status==='failed'||x.status==='waiting'||isRun(x))).sort((a,b)=>(ts(b.endedAt)||ts(b.createdAt))-(ts(a.endedAt)||ts(a.createdAt)));
-  const notes=(Array.isArray(bd)?bd:[]).slice(-5).reverse();
-  const html='<div id="hm-root" class="tk">'+health(t)+'<div class="tk-hello">'+esc(hello)+'</div>'
+  const notes=(Array.isArray(bd)?bd:[]).slice(-3).reverse();
+  const html='<div id="hm-root" class="tk home-page"><div class="cc-pagehead"><div><div class="cc-eyebrow">WORKSPACE / OVERVIEW</div><div class="tk-hello">Your command center</div><p class="cc-lead">'+esc(hello)+'</p></div><div class="cc-quick">'+btn('tab','Open Director','',' data-t="director"')+btn('tab','Browse sessions','',' data-t="sessions"')+'</div></div>'+health(t)
    +'<div class="cards">'
    +card('Tasks',String(run),'running',[wait+' waiting in line',doneToday+' finished today',fail+' failed'])
    +card('Agents with recent activity',String(work.length),'',per.length?per.map(x=>esc(P[x[0]])+': '+x[1]):['No recent activity.'])

@@ -85,6 +85,6 @@ function setTab(t){tab=t;try{localStorage.setItem('cc-tab',t)}catch(e){}
 $('tabs').onclick=e=>{const a=e.target.closest('[data-t]');if(a)setTab(a.dataset.t)};
 $('tabs').onkeydown=e=>{const a=e.target.closest('[data-t]');if(a&&(e.key==='Enter'||e.key===' ')){e.preventDefault();setTab(a.dataset.t)}};
 async function routeInfo(){try{const r=await (await fetch('/usage?p=route')).json();if(r.loading)return setTimeout(routeInfo,3000);
- $('route').innerHTML=r.error?'route: '+esc(r.error):'Next task goes to <b>'+esc(r.provider)+'</b> · '+esc(r.model)+(r.effort?' ('+r.effort+')':'')+(r.variant?' ('+r.variant+')':'')+' <span title="'+esc(r.why)+'">ⓘ</span>'}catch(e){}}
+ $('route').innerHTML=r.error?'Automatic routing: '+esc(r.error):'Automatic routing: <b>'+esc(r.provider)+'</b> · '+esc(r.model)+(r.effort?' ('+r.effort+')':'')+(r.variant?' ('+r.variant+')':'')+' <span title="'+esc(r.why)+'">ⓘ</span>'}catch(e){}}
 addEventListener("DOMContentLoaded",()=>setTab(tab));routeInfo();setInterval(routeInfo,300000);setInterval(prov,60000);
 tick();setInterval(tick,4000);hours();setInterval(hours,300000);fbModels();spawnInfo();setInterval(spawnInfo,15000);

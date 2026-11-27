@@ -103,11 +103,11 @@ function prereqLine() {
 }
 
 function shell() {
-  return `<div class="pg" id="pg-setup"><div class="pg-top"><h2>Setup</h2><span id="pg-saved" class="pg-saved"></span><button class="pill" data-recheck="1">Check again</button></div>
-<p class="pg-hint">Everything saves the moment you change it. Install and Log in open a terminal window on this PC: follow it, then come back (this page checks again by itself).</p>
-<div class="pg-chips" id="pg-pre"></div>
-<h3>AI tools</h3><div class="pg-cards" id="pg-tools"></div>
-<div id="pg-relay"></div><div id="pg-ttools"></div><div id="pg-folders"></div></div>`;
+  return `<div class="pg setup-page" id="pg-setup"><div class="cc-pagehead"><div><div class="cc-eyebrow">COMMAND CENTER / SETTINGS</div><h2>Set up your workspace</h2><p class="cc-lead">Connect your tools, choose a project, and decide how much can run at once.</p></div><div class="pg-top"><span id="pg-saved" class="pg-saved"></span><button class="pill" data-recheck="1">↻ Check connections</button></div></div>
+<div class="setup-intro"><div><b>Start with an agent</b><span>Turn on the tools you want to use. Changes save automatically.</span></div><div id="pg-pre" class="pg-chips"></div></div>
+<div class="cc-sectionhead"><div><span class="cc-step">01</span><h3>AI tools</h3><p class="pg-hint">Install or sign in only where needed.</p></div></div><div class="pg-cards" id="pg-tools"></div>
+<div class="setup-sections"><details class="setup-section"><summary><span class="cc-step">02</span><span><b>Project &amp; limits</b><small>Folders, models and concurrency</small></span></summary><div id="pg-folders"></div></details>
+<details class="setup-section"><summary><span class="cc-step">03</span><span><b>Relay &amp; integrations</b><small>Connect the relay and agent tools</small></span></summary><div id="pg-relay"></div><div id="pg-ttools"></div></details></div></div>`;
 }
 
 function paint(root, force) {
@@ -342,7 +342,7 @@ function guideSections(s) {
 <li><b>Guide</b> this page. Part 1 is for you. Part 2 is written for AI agents.</li>
 <li><b>Debug</b> checks that everything is in place and tells you how to fix what is not. "Copy all as text" gives you the whole result to paste to someone.</li>
 <li><b>Setup</b> one page for tools, the relay, folders and limits. Everything saves as soon as you change it.</li></ul>
-<p>The line at the top right, "Next task goes to", shows where an Automatic task would go right now.</p>`],
+<p>The line at the top right shows the current automatic routing choice. The Director uses its configured provider, or an available provider when none is usable.</p>`],
     ['setup', 'Setup in one page', `<p>Open the Setup tab. There is nothing to type: you pick from lists and buttons, and a folder window opens when you need to choose a folder.</p>
 <ul><li><b>AI tools</b>: one card for each tool. The switch turns it on or off. The big button shows the next thing to do: Install, then Log in, then it says Done. The Website and Docs links open the tool's own pages.</li>
 <li><b>Relay</b>: install the relay program, apply its patches, tell Claude about it, and add the one-CLI hook. The hook button changes your Claude settings file; it saves a backup first.</li>
@@ -405,18 +405,15 @@ PAGES.guide = async el => {
   try { const r = await fetch('/ai-guide'); if (r.ok) { aiText = await r.text(); aiHtml = mdToHtml(aiText); } } catch {}
   if (tab !== 'guide') return;
   const secs = guideSections(s);
-  el.innerHTML = `<div class="pg pg-guide" id="pg-guide"><h2>Guide</h2>
-<div class="pg-toc"><b><button type="button" data-go="pg-part1">Part 1: For people</button> · <button type="button" data-go="pg-part2">Part 2: For AI agents</button></b>${secs.map(([id, t], i) => `<button type="button" data-go="pg-s-${id}">${i + 1}. ${esc(t)}</button>`).join('')}</div>
-<h2 id="pg-part1">Part 1: For people</h2><p class="pg-hint">How the Command Center works, in plain words.</p>
-${secs.map(([id, t, h], i) => `<section class="pg-sec" id="pg-s-${id}"><h3>${i + 1}. ${esc(t)}</h3>${h}</section>`).join('')}
-<h2 id="pg-part2">Part 2: For AI agents</h2>
-<p class="pg-hint">Written for agents. An agent can fetch the same text with <code>curl.exe -s http://127.0.0.1:4021/ai-guide</code>.</p>
-<div class="pg-row"><button class="pill" data-copy-ai="1">Copy the AI guide as text</button></div>
-<div class="pg-ai">${aiHtml}</div></div>`;
+  el.innerHTML = `<div class="pg pg-guide" id="pg-guide"><div class="cc-pagehead"><div><div class="cc-eyebrow">LEARN / COMMAND CENTER</div><h2>How can we help?</h2><p class="cc-lead">Pick a topic and get just the steps you need.</p></div></div>
+<div class="guide-layout"><div class="guide-nav" role="navigation" aria-label="Guide topics"><b>ON THIS PAGE</b>${secs.map(([id, t]) => `<button type="button" data-go="pg-s-${id}">${esc(t)}</button>`).join('')}<button type="button" data-go="pg-part2">Guide for agents</button></div>
+<div class="guide-content"><div class="guide-start"><div class="cc-eyebrow">QUICK START</div><h3>From an idea to a result</h3><div class="guide-steps"><span><b>1</b> Connect an agent in Setup</span><span><b>2</b> Give the Director a goal</span><span><b>3</b> Follow work in Sessions</span></div></div>
+<h3 class="guide-label">Explore the guide</h3>${secs.map(([id, t, h], i) => `<details class="guide-topic" id="pg-s-${id}"${i === 0 ? ' open' : ''}><summary><span>${esc(t)}</span><small>Read topic</small></summary><div class="guide-body">${h}</div></details>`).join('')}
+<details class="guide-topic" id="pg-part2"><summary><span>Guide for agents</span><small>Technical reference</small></summary><div class="guide-body"><p class="pg-hint">Agents can fetch the same text from <code>/ai-guide</code>.</p><div class="pg-row"><button class="pill" data-copy-ai="1">Copy agent guide</button></div><div class="pg-ai">${aiHtml}</div></div></details></div></div></div>`;
   el.firstElementChild.addEventListener('click', e => {
     const b = e.target.closest('button[data-copy]'); if (b) return copyText(b);
     const ai = e.target.closest('button[data-copy-ai]'); if (ai) return copyText(ai, aiText);
-    const a = e.target.closest('[data-go]'); if (a) document.getElementById(a.dataset.go)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const a = e.target.closest('[data-go]'); if (a) { const target = document.getElementById(a.dataset.go); if (target) { target.open = true; target.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }
   });
 };
 })();
