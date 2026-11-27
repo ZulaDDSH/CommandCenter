@@ -40,3 +40,8 @@
 .dr-tm label{margin:0;display:block;flex:1;font-weight:400}
 .dr-tm select{width:auto;max-width:130px;margin:0}
 .dr-status{margin:4px 0 8px}
+.dr-auto{display:flex;align-items:center;gap:8px;flex-wrap:wrap;max-width:100%}
+.dr-auto-toggle{white-space:nowrap}
+.dr-auto-toggle.on{background:rgba(127,207,148,.13);color:var(--green);border-color:var(--green)}
+.dr-auto-toggle:disabled{opacity:.6;cursor:not-allowed}
+.dr-auto-queue{font-size:12px}

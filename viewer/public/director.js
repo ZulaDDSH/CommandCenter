@@ -5,7 +5,7 @@ const PR={1:'P1 highest',2:'P2 high',3:'P3 normal',4:'P4 low',5:'P5 lowest'};
 const LIVE=['waiting','starting','running'];
 const SAY=x=>x==='running'?'working':x;
 const CLS={done:'ok',running:'stage-working',starting:'stage-working',failed:'bad',interrupted:'warn'};
-let d=null,busy=0,saving=0,msg='',err='',panel='',defaultsOpen=false,curId='',orchGen=0,setup=null,setupAt=0,models=null,modelsAt=0,modelsGen=0,orch=null,budget=null,board=null,stick=true;
+let d=null,busy=0,saving=0,msg='',err='',panel='',defaultsOpen=false,curId='',orchGen=0,setup=null,setupAt=0,models=null,modelsAt=0,modelsGen=0,orch=null,budget=null,board=null,stick=true,auto=null,autoBusy=0;
 const openProviders=new Set();
 const tasksEl=document.createElement('div');tasksEl.id='dr-tasks';
 const NAMES={freebuff:'Freebuff',codex:'Codex',cursor:'Cursor',opencode:'OpenCode',claude:'Claude',antigravity:'Antigravity'};
@@ -125,9 +125,14 @@ function work(g){
  return rows?'<div class="tk-h">Handed out</div><div class="dr-sec">'+rows+'</div>'+ev:ev;
 }
 
+function autoBar(){
+ const on=!!(auto&&auto.enabled);
+ return '<div class="dr-auto" role="group" aria-label="PR auto-dispatch"><button type="button" id="dr-auto-toggle" class="pill dr-auto-toggle'+(on?' on':'')+'" data-auto-dispatch-toggle aria-pressed="'+on+'"'+(auto&&!autoBusy?'':' disabled')+(auto?'':' title="Auto-dispatch is not available on this panel."')+'>Auto-Dispatch: '+(on?'ON':'OFF')+'</button><span class="dr-pill dr-auto-queue" data-auto-dispatch-queue title="'+(auto?esc((auto.escalatedCount||0)+' escalated · '+(auto.activeCount||0)+' live task(s)'+(auto.enabled&&!auto.canRun?' · this panel does not run the dispatcher':'')+(auto.lastError?' · '+auto.lastError:'')):'Not available')+'">Queue: '+(auto?esc(auto.queueCount||0):'—')+'</span></div>';
+}
+
 function build(){
  const g=current(),need=d.needsYou||[],dis=d.dispatcher,gs=(d.goals||[]).slice().sort((a,b)=>Date.parse(b.updatedAt)-Date.parse(a.updatedAt));
- let h='<div id="dr-root" class="tk director-page"><div class="cc-pagehead"><div><div class="cc-eyebrow">COMMAND CENTER / DIRECTOR</div><div class="tk-hello">Your workspace</div><p class="cc-lead">Set a goal, follow the work, and keep your team moving.</p></div></div>';
+ let h='<div id="dr-root" class="tk director-page"><div class="cc-pagehead"><div><div class="cc-eyebrow">COMMAND CENTER / DIRECTOR</div><div class="tk-hello">Your workspace</div><p class="cc-lead">Set a goal, follow the work, and keep your team moving.</p></div>'+autoBar()+'</div>';
  if(d.config&&d.config.readError)h+='<div class="tk-bad"><b>config.json could not be read</b> ('+esc(d.config.readError)+'). The panel is using defaults. Saving a setting first copies the unreadable file to config.json.unreadable-*, so nothing is lost.</div>';
  if(dis&&(!dis.lastTick||Date.now()-dis.lastTick>15000||dis.error))h+='<div class="tk-bad"><b>The task dispatcher is not running.</b> '+esc(dis.error||'')+' Waiting tasks will not start.</div>';
  if(err)h+='<div class="tk-err">'+esc(err)+'</div>';
@@ -191,12 +196,13 @@ async function load(){
  if(busy)return;busy=1;
  try{
   const gen=orchGen;
-  const [r,o,b,s,bd]=await Promise.all([j('/director'),j('/orch'),j('/budget'),Date.now()-setupAt>60000?j('/setup'):null,j('/board?json=1')]);
+  const [r,o,b,s,bd,ad]=await Promise.all([j('/director'),j('/orch'),j('/budget'),Date.now()-setupAt>60000?j('/setup'):null,j('/board?json=1'),j('/auto-dispatch')]);
   if(r.ok&&r.body){d=r.body;err=''}
   else err=(r.body&&r.body.error)||'The director is not answering.';
   if(o.ok&&gen===orchGen)orch=o.body;
   if(b.ok)budget=b.body;
   if(bd.ok&&Array.isArray(bd.body))board=bd.body;
+  auto=ad.ok&&ad.body&&typeof ad.body==='object'&&'queueCount' in ad.body?ad.body:null;
   if(s&&s.ok){setup=s.body;setupAt=Date.now()}
   draw();
   if(Date.now()-modelsAt>600000){modelsAt=Date.now();const gen=++modelsGen;j('/models').then(m=>{if(m.ok&&gen===modelsGen){models=m.body;draw()}})}
@@ -283,6 +289,14 @@ document.addEventListener('change',e=>{
  else if(t.id==='dr-chat'){curId=t.value;stick=true;draw(true)}});
 
 document.addEventListener('click',async e=>{
+ const tg=e.target.closest('[data-auto-dispatch-toggle]');
+ if(tg&&tab==='director'){
+  if(!auto||autoBusy)return;
+  autoBusy=1;draw(true);
+  const r=await post('/auto-dispatch',{enabled:!auto.enabled});
+  autoBusy=0;
+  if(r.ok&&r.body&&'queueCount' in r.body){auto=r.body;err='';msg=auto.enabled?'Auto-dispatch is on.':'Auto-dispatch is off.'}else err=(r.body&&r.body.error)||'Could not change auto-dispatch.';
+  return draw(true)}
  const control=e.target.closest('[data-panel]');if(control&&tab==='director'){panel=panel===control.dataset.panel?'':control.dataset.panel;draw(true);tree();return}
  const b=e.target.closest('[data-d]');if(!b||tab!=='director')return;
  const a=b.dataset.d,id=b.dataset.id;
