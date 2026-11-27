@@ -111,6 +111,8 @@ try {
         }
       }
       if (tab === 'sessions') {
+        const tabsFit = await page.locator('.session-tabs').evaluate(el => [...el.children].every(button => button.getBoundingClientRect().bottom <= el.getBoundingClientRect().bottom + 1));
+        assert.ok(tabsFit, 'All provider tabs must fit inside their navigation');
         const running = page.locator('[data-task-id="running-task"]');
         await running.waitFor({ state: 'visible' });
         await running.focus();
