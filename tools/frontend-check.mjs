@@ -181,7 +181,7 @@ try {
         assert.equal(await page.evaluate(() => document.activeElement.dataset.sessionProvider), 'claude');
         assert.equal(await page.locator('#session-state option[value="unknown"]').count(), 0);
         await page.locator('[data-session-provider="freebuff"]').click();
-        await page.locator('.fb-usage-strip').getByText(/45m left/).waitFor({ state: 'visible' });
+        await page.locator('.fb-usage-strip .fb-cli-chip').getByText(/45m left/).waitFor({ state: 'visible' });
         await page.locator('[data-session-provider="team"]').click();
         await page.locator('.team-view').getByText('Wave check-in sent to team.').waitFor({ state: 'visible' });
         const teamInput = page.locator('#team-note');
