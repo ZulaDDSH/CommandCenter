@@ -42,7 +42,7 @@ function toolCard(k) {
   const sw = `<label class="pg-sw" title="${on ? 'On' : 'Off'}"><input type="checkbox" aria-label="${esc(p.name)}" data-k="providers.${k}"${on ? ' checked' : ''}><span class="pg-slider"></span></label>`;
   let ok = null, line, act = '';
   if (!on) line = 'Turned off. The panel never sends it work.';
-  else if (!p.installed) { ok = false; line = 'Not installed yet.'; act = `<button class="pill pg-go" data-run="${k}:install">Install</button>`; }
+  else if (!p.installed) { ok = false; line = 'Not found on the panel’s PATH.'; act = `<button class="pill pg-go" data-run="${k}:install">Install</button>`; }
   else if (p.signedIn === false) { ok = false; line = 'Installed, not signed in.'; act = `<button class="pill pg-go" data-run="${k}:login">Log in</button>`; }
   else if (p.signedIn === null) { line = 'Installed. Sign-in cannot be read from here.'; act = '<button class="pill pg-go" data-recheck="1">Check again</button>'; }
   else { ok = true; line = 'Installed and signed in.'; act = '<button class="pill pg-done" disabled>Done</button>'; }

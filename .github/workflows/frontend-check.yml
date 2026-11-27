@@ -31,3 +31,13 @@ jobs:
           path: frontend-artifacts/
           if-no-files-found: ignore
           retention-days: 3
+
+  windows-path:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node tools/windows-path-check.mjs

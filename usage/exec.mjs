@@ -1,20 +1,8 @@
-import { spawnSync, execFile } from 'node:child_process';
-import { cursorCmd, cursorPs1 } from '../lib/cli.mjs';
+import { execFile } from 'node:child_process';
+import { which, cursorCmd, cursorPs1 } from '../lib/cli.mjs';
 
 const win = process.platform === 'win32';
-const found = new Map();
-
-const missing = new Map();
-
-export function findBin(name) {
-  if (found.has(name)) return found.get(name);
-  if (Date.now() - (missing.get(name) ?? -Infinity) < 60000) return null;
-  const r = spawnSync(win ? 'where.exe' : 'which', [name], { encoding: 'utf8', windowsHide: true });
-  const hits = r.status === 0 ? r.stdout.split(/\r?\n/).map(s => s.trim()).filter(Boolean) : [];
-  const hit = (win ? hits.find(h => /\.(exe|cmd|bat|com)$/i.test(h)) : hits[0]) ?? null;
-  if (hit) found.set(name, hit); else missing.set(name, Date.now());
-  return hit;
-}
+export const findBin = name => which(name);
 
 export const binOf = p => p === 'antigravity' ? 'agy' : p;
 export const isInstalled = p => p === 'freebuff' ? true : p === 'cursor' ? !!(findBin('cursor-agent') || cursorPs1()) : !!findBin(binOf(p));
