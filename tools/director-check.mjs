@@ -417,7 +417,8 @@ try {
   console.log('\nInterruption (panel killed while a task runs)');
   writeConfig(app, app, { mergeEnabled: true });
   const port2 = await freePort();
-  current = await startPanel({ app, bin, port: port2, log, extraEnv: { CC_FAKE_SLEEP_MS: '900000' } });
+  const peerSecret = crypto.randomBytes(18).toString('hex');
+  current = await startPanel({ app, bin, port: port2, log, extraEnv: { CC_FAKE_SLEEP_MS: '900000', CC_PEER_CHECK_WORKSTATION_B: peerSecret } });
   const mk2 = await postJson(port2, '/director/goal', { title: 'Interrupt goal', text: 'Stay running long enough to be killed.', priority: 3, projectDir: app, limits: { maxLive: 2, taskMinutes: 30 } });
   const goal2 = mk2.body?.goal?.id, task2 = mk2.body?.task?.id;
   must('a second goal starts a task', mk2.status === 200 && !!task2, `HTTP ${mk2.status}${mk2.body?.error ? ` — ${mk2.body.error}` : ''}`);
@@ -497,6 +498,43 @@ try {
   extra = null;
   const afterBoth = (await getJson(port2, '/tasks'))?.tasks?.find(x => x.id === task2);
   must('the task survives the second panel coming and going', afterBoth?.status === 'running' && afterBoth?.lease?.token === token1, `${afterBoth?.status} / ${afterBoth?.lease?.token}`);
+
+  console.log('\nA second machine joins with its own process, token and data dir');
+  const secondName = 'check-workstation-b';
+  const peerAdded = await postJson(port2, '/director/machines/add', { name: secondName, url: 'http://127.0.0.1:1' });
+  must('the host lists a second machine', peerAdded.status === 200 && !!peerAdded.body?.peer?.id, peerAdded.body?.error ?? `HTTP ${peerAdded.status}`);
+  const listed = (await getJson(port2, '/director/machines'))?.peers?.find(x => x.name === secondName);
+  must('a listed machine is not authenticated until it signs', listed?.authenticated === false && listed?.status === 'offline', `${listed?.status} / authenticated ${listed?.authenticated}`);
+
+  const peerRoot = path.join(tmp, 'peer');
+  const peerRun = spawnSync(process.execPath, [path.join(app, 'tools', 'peer.mjs'), 'join', '--host', `http://127.0.0.1:${port2}`, '--name', 'check-host', '--task', task2], {
+    encoding: 'utf8', timeout: 90000, windowsHide: true,
+    env: { ...process.env, CC_ROOT: peerRoot, CC_MACHINE_NAME: secondName, CC_PEER_CHECK_HOST: peerSecret, CC_FAKE_SLEEP_MS: '0' },
+  });
+  const peerLine = String(peerRun.stdout ?? '').trim().split(/\r?\n/).filter(Boolean).pop() ?? '';
+  let peer = null;
+  try { peer = JSON.parse(peerLine); } catch {}
+  must('the second machine runs from its own data directory', !!peer?.root && samePath(peer.root, peerRoot), peer?.root ?? peerLine.slice(0, 140));
+  const selfIdHere = (await getJson(port2, '/director/machines'))?.self?.id;
+  must('it has its own machine id, distinct from this host', !!peer?.selfId && peer.selfId !== selfIdHere, `${peer?.selfId ?? 'none'} vs ${selfIdHere ?? 'none'}`);
+  must('it reports its own capabilities', !!peer?.capabilities?.providers && peer.capabilities.claim?.supported === false, Object.keys(peer?.capabilities?.providers ?? {}).join(',') || 'none');
+  must('its signed hello is accepted', peer?.hello?.ok === true && peer.hello.status === 'online', `${peer?.hello?.status ?? 'none'} ${peer?.hello?.why ?? ''}`);
+  must('it cannot claim work, even authenticated', peer?.claim?.status === 501 && peer.claim.code === 'claim-unsupported' && peer.claim.supported === false, `HTTP ${peer?.claim?.status} ${peer?.claim?.code ?? ''}`);
+  must('it cannot claim work without valid credentials', peer?.claimBad?.status === 403, `HTTP ${peer?.claimBad?.status} ${peer?.claimBad?.code ?? ''}`);
+  must('its own store holds none of this host tasks', peer?.hasTask === false && peer?.ownTasks === 0, `${peer?.ownTasks} task(s), host task present ${peer?.hasTask}`);
+
+  const afterPeer = (await getJson(port2, '/director/machines'))?.peers?.find(x => x.name === secondName);
+  must('the host records it as an authenticated machine', afterPeer?.status === 'online' && afterPeer?.authenticated === true, `${afterPeer?.status} / authenticated ${afterPeer?.authenticated}`);
+  must('the host keeps its identity, capabilities and availability', afterPeer?.reportedId === peer?.selfId && !!afterPeer?.capabilities?.providers && afterPeer?.available === true, `${afterPeer?.reportedId ?? 'none'} / available ${afterPeer?.available}`);
+  const peerTask = (await getJson(port2, '/tasks'))?.tasks?.find(x => x.id === task2);
+  must('the second machine neither recovered nor interrupted the task', peerTask?.status === 'running' && peerTask?.lease?.token === token1 && peerTask?.lease?.owner === beforeKill.lease.owner, `${peerTask?.status} / ${peerTask?.lease?.token}`);
+  const taskMachines = ((await getJson(port2, '/tasks'))?.tasks ?? []).map(x => x.machine).filter(m => m && m !== 'local');
+  must('no task was handed to that machine', taskMachines.length === 0, taskMachines.join(',') || 'none');
+  const tickP = (await getJson(port2, '/tasks'))?.dispatcher?.lastTick ?? 0;
+  await sleep(6500);
+  const tickP2 = (await getJson(port2, '/tasks'))?.dispatcher?.lastTick ?? 0;
+  must('the first host kept dispatching throughout', tickP2 > tickP, `${tickP} -> ${tickP2}`);
+  must('the task is still the first host business', readStore().find(x => x.id === task2)?.lease?.token === token1);
 
   killPanel(current);
   current = null;

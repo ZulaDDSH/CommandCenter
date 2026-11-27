@@ -39,7 +39,7 @@ The Director tab turns a goal into work. You write what done looks like; the exi
 - A task left `interrupted` by a restart waits for you: Freebuff tasks continue the same chat on their own, everything else needs a click. Nothing restarts silently.
 - A task that runs in a git repository works in its own worktree under `<repo>/git/<task-id>` (turn `taskWorktrees` off in `config.json` to share the checkout). A folder this task did not create is never touched.
 - Only one panel per folder dispatches tasks (`state/panel.lock`). A second panel shows the work and starts nothing.
-- Machines: this PC reports what it really has. Another machine is shown online only after a signed `POST /machine/hello`; nothing is copied between machines. The panel still listens on 127.0.0.1 only.
+- Machines: this PC reports what it really has. Another machine is shown `authenticated` only after its signed `POST /machine/hello`, which also carries what it reported about itself; nothing is copied between machines. A second machine joins by running `node tools/peer.mjs join --host <panel url> --name <the label you gave it on this PC>` from its own copy with its own data folder (`CC_ROOT`), its own label (`CC_MACHINE_NAME`) and the same shared secret in `CC_PEER_<the other side's name>` on each PC. It gets its own machine id and capabilities, and it cannot take work: `/machine/claim` answers 403 without a valid signature and 501 `claim-unsupported` with one. The panel still listens on 127.0.0.1 only, so a peer elsewhere needs a tunnel you control.
 - Pull requests come from `gh` (read-only). Your approval is recorded for one head commit; merging from the panel is off unless `mergeEnabled` is set, and even then it needs the number typed again and refuses a draft, a failing or running check, a changes-requested review, or an approval recorded for a different commit.
 - `docs/director/FEATURE-PARITY.md` is the inventory (working, partial, missing, unverified) and `docs/director/STAGES.md` is the append-only stage log.
 
@@ -49,7 +49,7 @@ To check it, with no effect on your real install:
 node tools/director-check.mjs
 ```
 
-It parse-checks every module, copies the app to a temp folder, commits that copy as a git repository and writes a fake `codex`, boots the panel there on 127.0.0.1, and proves the slice: routes, one goal assigned and finished, the worktree, the lease, the fence that refuses a close from any other writer, the evidence, pause/stop/resume, the signed machine hello, the merge refusals, and recovery from a kill mid-task. It starts no real provider and changes nothing outside the temp folder. `--keep` leaves the folder and prints the panel log. The same command is what `.github/workflows/director-check.yml` runs.
+It parse-checks every module, copies the app to a temp folder, commits that copy as a git repository and writes a fake `codex`, boots the panel there on 127.0.0.1, and proves the slice: routes, one goal assigned and finished, the worktree, the lease, the fence that refuses a close from any other writer, the evidence, pause/stop/resume, the signed machine hello, a second machine identity joining on its own data folder without seeing or disturbing the running task or being able to claim work, the merge refusals, and recovery from a kill mid-task. It starts no real provider and changes nothing outside the temp folder. `--keep` leaves the folder and prints the panel log. The same command is what `.github/workflows/director-check.yml` runs.
 
 ## Files
 
@@ -70,6 +70,7 @@ It parse-checks every module, copies the app to a temp folder, commits that copy
 | `lib/worktrees.mjs` | One worktree per task at `<repo>/git/<task-id>` on branch `cc/<task-id>`; never reuses a folder another owner created. |
 | `lib/machines.mjs` | This machine's real capabilities, listed peers, and the HMAC-signed handshake. A peer is online only after a signed hello. Secrets live in `CC_PEER_<NAME>` environment variables, never in a file. |
 | `lib/github.mjs` | Pull requests, heads, review decisions and public CI from the `gh` CLI, read-only. Merge guardrails live here too. |
+| `tools/peer.mjs` | A second machine's CLI: its own data folder and machine id, a signed hello to a host, and an honest claim attempt (403 without valid credentials, 501 `claim-unsupported` with them). Prints one JSON line and never a secret. |
 | `lib/routes/director.mjs` | `/director`, goals, machines, GitHub, merge approval and the stage log. |
 | `tools/director-check.mjs` | The one command that proves the director stage in a throwaway folder (see the Director section). |
 | `.github/workflows/director-check.yml` | Runs that command on `windows-latest` for every push to `main`. |

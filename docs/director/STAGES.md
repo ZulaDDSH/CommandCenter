@@ -270,3 +270,54 @@ route `POST /director/stage` is the way to add an entry from a running panel.
 - Next: a second *machine* would claim through the same token; that path stays unexercised.
 - CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45943265830 — success, `93 passed, 0 failed`
   on `windows-latest`, for commit `60c7e54`. The only later change is this line.
+
+## 2026-11-27 — Stage 5: a second machine identity, authenticated and unable to claim
+
+- Goal: none. The mission wants a second machine to join and take work; this stage makes the join real
+  and reports the claim as unsupported instead of pretending it works.
+- Exists: `lib/machines.mjs` had an inventory, an HMAC-signed hello and `verifyHello`, but no second
+  process could ever pass it. `addPeer` derived a peer id from the *name* (`m-<sha256 of name>`), while a
+  peer signs with its own id (`sha256(hostname|user|ROOT)`), so a real hello was looked up as a different
+  machine and answered 404 — only the hand-written harness hello matched. `ROOT` was fixed to the app
+  folder, so a second process could not have its own `machines.json`/`tasks.json`. The hello body was
+  ignored, so the host never learned a peer's capabilities or availability, `capabilities()` said nothing
+  about what a peer may do, and there was no route where a peer could even attempt a claim.
+- Changed:
+  - Identity: `localId()` hashes `hostname|user|ROOT`, so two installs on one PC are two identities and a
+    copied folder is not the same machine. `CC_MACHINE_NAME` labels a second install. `CC_ROOT` gives a
+    second process its own data directory; with it unset, paths are what they were.
+  - Verification: `verifyHello` resolves a caller by id, then by the `x-cc-name` header, and records the
+    id the caller reported (`reportedId`) with its capabilities and availability. A later signed call that
+    carries no capabilities no longer erases the ones already recorded.
+  - `handshake()` sends its name, capabilities (including `claim.supported: false`) and availability.
+  - `/machine/claim` uses the same signature check and then answers 501 `claim-unsupported`. Missing or
+    invalid credentials are refused earlier with 400/403/404/503. Neither path reads or writes a task.
+  - `tools/peer.mjs` is a real second-machine CLI (`id`, `join --host <url> --name <label> [--task <id>]`):
+    own `CC_ROOT`, adds the host to its own inventory, signs a hello, attempts a claim with its own secret
+    and with a wrong one, and prints one JSON line. It never prints a secret.
+  - The Machines card shows `authenticated` apart from `online`, the reported machine id, the peer's OS
+    and enabled providers, and `claim unsupported`.
+- Evidence: `node tools/director-check.mjs` → 108 passed, 0 failed (93 before this stage, 15 new).
+  The new section starts a second process with `CC_ROOT=<temp>/peer` and
+  `CC_MACHINE_NAME=check-workstation-b` and its own secret while the first host is running a leased task,
+  then asserts: the host lists the machine and treats it as not authenticated until it signs; the process
+  runs from its own data directory with an id different from the host; it reports its own capabilities;
+  its hello is accepted; it gets 501 `claim-unsupported` with a valid signature and 403 without one; its
+  own store holds none of the host's tasks; the host records it as authenticated with that id, its
+  capabilities and availability; the running task keeps its status, token and owner and no task names that
+  machine; the host's dispatcher keeps ticking across 6.5 s; and the lease is still the host's afterwards.
+- Limitations (what a remote machine still cannot do):
+  - Claim, dispatch and provider adapters on the peer host: unsupported. `/machine/claim` answers 501 by
+    design, the dispatcher only ever assigns to the local panel, and `tools/peer.mjs` has no task loop,
+    no worktree handoff and no provider supervision. Nothing on the peer host runs a task.
+  - The panel binds `127.0.0.1`, so a peer on another PC needs a tunnel or reverse proxy you control. The
+    check therefore exercises the protocol between two processes on one PC with separate identities and
+    data directories, not a WAN hop. Signature checks, the 60 s replay window and the refusal paths are
+    the same either way; the network path between two PCs is not exercised here.
+  - The peer-facing surface is `/machine/hello` and `/machine/claim` only; the rest is the local UI. A
+    process on the same PC could still open `/tasks` on the host, so the check asserts that the peer's own
+    store has none of the host's tasks and that no task names that machine — not that a socket on the same
+    box is unreachable.
+  - Capabilities are what the peer reports about itself; the host does not probe them.
+- Next: task handoff — a claim that moves a worktree and a supervised provider run to a peer — is the next
+  real step, and `claim` stays 501 until that exists.
