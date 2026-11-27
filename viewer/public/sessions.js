@@ -36,7 +36,7 @@ function close(){token++;clearTimeout(timer);cur=null;$('view').hidden=true;(ope
 
 window.openSession=(provider,id)=>{
  if($('view').hidden)opener=document.activeElement;
- token++;clearTimeout(timer);cur={p:provider,id};lastRaw='';viewMode='chat';$('vact').hidden=true;$('vchat').classList.add('on');$('vchat').setAttribute('aria-pressed','true');$('vtools').classList.remove('on');$('vtools').setAttribute('aria-pressed','false');$('vtools').textContent='Tool calls';
+ token++;clearTimeout(timer);cur={p:provider,id};lastRaw='';viewMode='chat';opened.clear();$('vact').hidden=true;$('vchat').classList.add('on');$('vchat').setAttribute('aria-pressed','true');$('vtools').classList.remove('on');$('vtools').setAttribute('aria-pressed','false');$('vtools').textContent='Tool calls';
  $('vtitle').textContent='Loading…';$('vmeta').textContent='';$('vfeed').innerHTML='<div class="empty">Loading…</div>';
  $('view').hidden=false;$('vclose').focus();load(true)};
 

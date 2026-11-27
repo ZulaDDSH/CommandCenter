@@ -203,6 +203,10 @@ try {
         assert.equal(await page.locator('#vfeed .tool').count(), 0);
         await page.keyboard.press('Escape');
         assert.equal(await page.getByRole('dialog').isVisible(), false);
+        await page.locator('.session-open').first().click();
+        await page.getByRole('button', { name: 'Tool calls (2)' }).click();
+        assert.equal(await page.locator('#vfeed .tool[open]').count(), 0);
+        await page.keyboard.press('Escape');
       }
       if (tab === 'archive') {
         await page.locator('.asearch').fill('no matching archive');
