@@ -96,7 +96,7 @@ try {
         assert.ok(settings.scroll <= settings.width + 1, `Director settings overflow at ${width}px: ${JSON.stringify(settings)}`);
         await page.screenshot({ path: `frontend-artifacts/${width}-director-settings.png` });
         await page.locator('[data-panel="tasks"]').click();
-        const table = page.locator('#tk-list .tk-table-wrap');
+        const table = page.getByRole('region', { name: 'Finished (newest first) tasks' });
         await table.waitFor({ state: 'visible' });
         assert.equal(await table.getByText(task.title).count(), 1, 'Finished task must appear in the task table');
         await table.screenshot({ path: `frontend-artifacts/${width}-tasks.png` });
