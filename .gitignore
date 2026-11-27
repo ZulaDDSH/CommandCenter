@@ -1,0 +1,29 @@
+# This PC's data and state. Never committed: it belongs to one machine and some of it holds
+# paths, session notes and settings that must not travel (see lib/copy-app.ps1 for the same
+# list used when packing an install for another PC).
+/config.json
+/config.json.tmp
+/tasks.json
+/tasks.json.tmp
+/tasks/
+/logs/
+/reports/
+/board.jsonl
+/backups/
+/machines.json
+/machines.json.tmp
+/goals.json
+/goals.json.tmp
+/disabled-extensions.json
+/session-meta.json
+/session-meta.json.tmp
+/trash/
+/state/
+/runtime/
+/.cc-install
+/CommandCenter-*.zip
+/docs/AGENT-BRIEF-COMMON.md
+/.freebuff/
+
+# Task worktrees: one folder per task, named after the task id (lib/worktrees.mjs).
+/git/

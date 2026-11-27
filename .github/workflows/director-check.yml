@@ -1,0 +1,39 @@
+# The director check: parse every module, then boot the panel from a throwaway state directory and
+# walk the smallest end-to-end slice. It never touches the real install and never reaches a real
+# provider: the panel it starts can only find a fake `codex` the check writes into its temp folder.
+#
+# The app itself is Windows-first (start.ps1, cmd.exe shims, PowerShell usage readers), so this runs
+# on windows-latest even though the panel binds 127.0.0.1 only.
+name: director-check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22.13 or newer is the floor: lib/sessions.mjs uses node:sqlite.
+          node-version: '22'
+
+      - name: Parse checks and the isolated boot-and-slice check
+        run: node tools/director-check.mjs
+
+      - name: Keep the temp state when a check fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: director-check-state
+          path: ${{ runner.temp }}/cc-director-check-*
+          if-no-files-found: ignore
+          retention-days: 3

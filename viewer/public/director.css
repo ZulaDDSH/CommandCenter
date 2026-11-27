@@ -1,0 +1,28 @@
+/* Director tab. Reuses the .tk classes from tasks.css; only the goal card is its own. */
+.dr-form{margin:10px 0}
+.dr-form label{display:block;margin:6px 0}
+.dr-form input,.dr-form textarea,.dr-form select{width:100%;max-width:520px}
+.dr-grid{display:flex;gap:10px;flex-wrap:wrap}
+.dr-grid>label{flex:1 1 180px}
+.dr-goal{border:1px solid var(--line,#2b2b33);border-radius:8px;padding:10px;margin:10px 0}
+.dr-gh{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.dr-pr{font-size:11px;letter-spacing:.04em;padding:1px 6px;border-radius:999px;background:#2b2b33;color:#ddd}
+.dr-pill{font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid #3a3a44;color:#ddd;white-space:nowrap}
+.dr-pill.ok{border-color:#2f7d4f;color:#7ee0a5}
+.dr-pill.warn{border-color:#7d6a2f;color:#e0cf7e}
+.dr-pill.bad{border-color:#7d2f37;color:#e08a90}
+.dr-pill.stage-working{border-color:#2f5d7d;color:#7ec8e0}
+.dr-pill.stage-blocked{border-color:#7d2f37;color:#e08a90}
+.dr-pill.stage-done{border-color:#2f7d4f;color:#7ee0a5}
+.dr-pill.stage-paused,.dr-pill.stage-stopped{border-color:#5a5a66;color:#b9b9c4}
+.dr-bar{height:6px;border-radius:4px;background:#26262e;overflow:hidden;margin:6px 0}
+.dr-bar>i{display:block;height:100%;background:#3f7fbf}
+.dr-sec{margin:8px 0}
+.dr-b{border-left:2px solid #7d2f37;padding-left:8px;margin:4px 0;font-size:12px}
+.dr-needs{border-left:2px solid #7d6a2f;padding-left:8px;margin:6px 0;font-size:12px}
+.dr-agent{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0;font-size:12px}
+.dr-chip{display:inline-block;font-size:11px;border:1px solid #3a3a44;border-radius:999px;padding:1px 7px;margin:2px 3px 2px 0}
+.dr-act{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.dr-ev{margin:6px 0}
+.dr-e{border-top:1px solid #26262e;padding:6px 0;font-size:12px}
+.dr-pre{margin:4px 0;padding:6px;background:#1c1c22;border-radius:6px;max-height:120px;overflow:auto;font-size:11px;white-space:pre-wrap}

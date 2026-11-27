@@ -1,0 +1,31 @@
+.ext{width:100%}
+.ext h2{margin:0 0 4px;font-size:22px}
+.ext .xhint{color:var(--dim);font-size:13px;margin:4px 0 14px}
+.ext .xbar{display:flex;gap:12px;align-items:center;margin:10px 0 16px}
+.ext .xbar input{flex:1;min-width:0;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font:inherit}
+.ext .xmsg{border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:8px 0;background:var(--panel)}
+.ext .xmsg.ok{border-color:var(--green);color:var(--green)}
+.ext .xmsg.bad{border-color:var(--red);color:var(--red)}
+.ext details.xsec{border:1px solid var(--line);border-radius:10px;background:var(--panel);margin:14px 0;width:100%}
+.ext details.xsec>summary{cursor:pointer;padding:10px 16px;font-weight:700;font-size:15px;list-style:none;display:flex;gap:10px;align-items:center}
+.ext details.xsec>summary::-webkit-details-marker{display:none}
+.ext details.xsec>summary::before{content:"\25B8";color:var(--dim)}
+.ext details.xsec[open]>summary::before{content:"\25BE"}
+.ext .xcount{color:var(--dim);font-weight:400;font-size:12px}
+.ext .xrow{display:flex;gap:16px;align-items:center;padding:10px 16px;border-top:1px solid var(--line)}
+.ext .xrow.off .xname{color:var(--dim)}
+.ext .xmain{flex:1;min-width:0}
+.ext .xname{font-weight:600}
+.ext .xapp{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:0 7px;margin-left:8px;font-size:11px;color:var(--dim);font-weight:400}
+.ext .xwhat{color:var(--fg);font-size:12.5px;word-break:break-word;margin-top:2px}
+.ext .xsrc{color:var(--dim);font-size:11.5px;margin-top:2px;word-break:break-all}
+.ext .xnote{color:var(--amber);font-size:11.5px;margin-top:2px}
+.ext .sw{position:relative;display:inline-block;width:42px;height:24px;flex:none}
+.ext .sw input{opacity:0;width:0;height:0;position:absolute}
+.ext .sw span{position:absolute;inset:0;background:#2a3140;border-radius:24px;cursor:pointer;transition:background .15s}
+.ext .sw span::before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#d7dce5;border-radius:50%;transition:transform .15s}
+.ext .sw input:checked+span{background:var(--green)}
+.ext .sw input:checked+span::before{transform:translateX(18px);background:#0b0e14}
+.ext .sw input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.ext .sw input:disabled+span{opacity:.45;cursor:not-allowed}
+.ext .xempty{padding:12px 16px;color:var(--dim);border-top:1px solid var(--line)}
