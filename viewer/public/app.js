@@ -1,6 +1,7 @@
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
 const md=s=>esc(s).replace(/\x60([^\x60\n]+)\x60/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>');
+function keepFeedFocus(f){const a=document.activeElement;if(!f.contains(a))return()=>{};const button=a.matches('[data-expand]'),key=button?a.dataset.expand:a.matches('.text[tabindex="-1"]')?a.dataset.k:null;return()=>{if(key==null)return;const t=(button&&Array.from(f.querySelectorAll('[data-expand]')).find(x=>x.dataset.expand===key))||Array.from(f.querySelectorAll('.text[data-k]')).find(x=>x.dataset.k===key);if(t){if(!t.matches('button'))t.tabIndex=-1;t.focus({preventScroll:true})}}}
 const ago=ms=>{const s=Math.round((Date.now()-ms)/1000);return s<60?s+'s ago':s<3600?Math.round(s/60)+'m ago':Math.round(s/3600)+'h ago'};
 const state=x=>x.report?'done':x.queued?'queued':(Date.now()-x.mtime<90000?'live':'idle');
 const rate=x=>(x.rate?.tps!=null&&!x.report&&!x.queued?'<b>'+x.rate.tps+' tok/s</b> · ':'')+(x.rate?'~'+(x.rate.tokens>=1000?Math.round(x.rate.tokens/100)/10+'k':x.rate.tokens)+' tok out · ':'');
@@ -25,13 +26,13 @@ async function openDiff(file){dfile=file;const f=cur().changes.files.find(f=>f.p
  const t=await (await fetch('/diff?slug='+encodeURIComponent(sel)+'&file='+encodeURIComponent(file))).text();
  $('dbody').innerHTML=t.split('\n').filter(l=>!/^(diff --git|index |--- |\+\+\+ |new file mode)/.test(l)).map(l=>'<div class="ln '+(l[0]==='+'?'a':l[0]==='-'?'d':l.startsWith('@@')?'h':l[0]==='\\'?'m':'')+'">'+esc(l)+'</div>').join('')||'<div class="ln m">No diff.</div>'}
 function feed(){const x=cur();if(!x){$('feed').innerHTML='<div class="empty">No session.</div>';return}
- const f=$('feed'),atBottom=f.scrollHeight-f.scrollTop-f.clientHeight<80,top=f.scrollTop;
+ const f=$('feed'),atBottom=f.scrollHeight-f.scrollTop-f.clientHeight<80,top=f.scrollTop,restoreFocus=keepFeedFocus(f);
  f.innerHTML=x.steps.map((s,i)=>{const key=x.slug+':'+i;
   if(s.k==='user')return '<div class="user">'+md(s.text)+'</div>';
-  if(s.k==='text'){const long=s.text.split('\n').length>6||s.text.length>600;return '<div class="text'+(long&&!expanded.has(key)?' long':'')+'" data-k="'+key+'">'+md(s.text)+'</div>'}
+  if(s.k==='text'){const long=(s.text.split('\n').length>6||s.text.length>600)&&!expanded.has(key);return '<div class="text'+(long?' long':'')+'" data-k="'+esc(key)+'">'+md(s.text)+'</div>'+(long?'<button type="button" class="text-expand" data-expand="'+esc(key)+'">Show more</button>':'')}
   return '<details class="tool" data-k="'+key+'"'+(opened.has(key)?' open':'')+'><summary><span class="tag '+kind(s.name)+'">'+esc(s.name)+'</span><span class="cmd">'+esc(s.input)+'</span></summary><pre>'+esc(s.output||'(no output yet)')+'</pre></details>'}).join('')
   +(x.report?'<div class="report"><b>Report: fb-reports/'+esc(x.slug)+'.md</b>\n\n'+md(x.report)+'</div>':'');
- f.scrollTop=($('follow').checked&&atBottom)?f.scrollHeight:top}
+ f.scrollTop=($('follow').checked&&atBottom)?f.scrollHeight:top;restoreFocus()}
 async function tick(){try{const d=await (await fetch('/api')).json();const s=JSON.stringify(d.map(x=>[x.slug,x.mtime,!!x.report,x.expiresAt&&left(x.expiresAt),!!x.hourOver]));
  const old=JSON.stringify(cur()?.changes);data=d;const v=shown();if(v.length&&!v.some(x=>x.slug===sel)){sel=v[0].slug;sig=''}list();header();
  if(s!==sig){sig=s;feed()}if(dfile&&JSON.stringify(cur()?.changes)!==old)openDiff(dfile)}catch(e){}}
@@ -46,7 +47,7 @@ $('pop').onclick=e=>{const r=e.target.closest('[data-f]');if(r){openDiff(r.datas
 document.addEventListener('click',e=>{if(!e.target.closest('#pop,#pill'))$('pop').hidden=true});
 $('dclose').onclick=()=>{dfile=null;$('diff').classList.remove('on')};
 $('feed').addEventListener('toggle',e=>{const k=e.target.dataset?.k;if(k)e.target.open?opened.add(k):opened.delete(k)},true);
-$('feed').onclick=e=>{const t=e.target.closest('.text.long');if(t){expanded.add(t.dataset.k);t.classList.remove('long')}};
+$('feed').onclick=e=>{const b=e.target.closest('[data-expand]');if(b){const t=b.previousElementSibling;expanded.add(b.dataset.expand);t.classList.remove('long');t.tabIndex=-1;b.remove();t.focus({preventScroll:true})}};
 const when=iso=>iso?new Date(iso).toLocaleString([], {weekday:'short',hour:'numeric',minute:'2-digit'}):'?';
 const left=iso=>{const m=Math.max(0,Math.round((new Date(iso)-Date.now())/60000));return m>=60?Math.floor(m/60)+'h '+(m%60)+'m':m+'m'};
 async function hours(fresh){try{const u=await (await fetch('/usage?p=freebuff'+(fresh?'&fresh=1':''))).json();if(u.loading)return setTimeout(hours,3000);

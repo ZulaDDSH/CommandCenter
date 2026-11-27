@@ -11,14 +11,14 @@ let cur=null,timer=0,token=0,lastRaw='';
 function steps(x){const key=x.provider+':'+x.id+':';
  return x.steps.map((s,i)=>{const k=key+i;
   if(s.k==='user')return '<div class="user">'+md(s.text)+'</div>';
-  if(s.k==='text'){const t=s.text||'',long=t.split('\n').length>6||t.length>600;return '<div class="text'+(long&&!expanded.has(k)?' long':'')+'" data-k="'+esc(k)+'">'+md(t)+'</div>'}
+  if(s.k==='text'){const t=s.text||'',long=(t.split('\n').length>6||t.length>600)&&!expanded.has(k);return '<div class="text'+(long?' long':'')+'" data-k="'+esc(k)+'">'+md(t)+'</div>'+(long?'<button type="button" class="text-expand" data-expand="'+esc(k)+'">Show more</button>':'')}
   return '<details class="tool" data-k="'+esc(k)+'"'+(opened.has(k)?' open':'')+'><summary><span class="tag '+kind(s.name||'')+'">'+esc(s.name)+'</span><span class="cmd">'+esc(s.input)+'</span></summary><pre>'+esc(s.output||'(no output yet)')+'</pre></details>'}).join('')||'<div class="empty">No messages yet.</div>'}
 
-function render(x){cur.x=x;$('vact').hidden=false;$('varc').textContent=x.archived?'Unarchive':'Archive';const f=$('vfeed'),atBottom=f.scrollHeight-f.scrollTop-f.clientHeight<80,top=f.scrollTop;
+function render(x){cur.x=x;$('vact').hidden=false;$('varc').textContent=x.archived?'Unarchive':'Archive';const f=$('vfeed'),atBottom=f.scrollHeight-f.scrollTop-f.clientHeight<80,top=f.scrollTop,restoreFocus=keepFeedFocus(f);
  $('vtitle').textContent=x.title||x.id;
  $('vmeta').innerHTML=[esc(x.provider),x.model&&esc(x.model),'<span title="'+esc(x.cwd)+'">'+esc(last2(x.cwd))+'</span>',dot(x.live,x.liveWhy),'history read from disk, the panel cannot stop or message it','last activity '+esc(recent(x.mtime))].filter(Boolean).join(' · ');
  f.innerHTML=steps(x);
- f.scrollTop=($('vfollow').checked&&atBottom)?f.scrollHeight:top}
+ f.scrollTop=($('vfollow').checked&&atBottom)?f.scrollHeight:top;restoreFocus()}
 
 async function load(first){const t=token;let raw,ok;
  try{const r=await fetch('/session?p='+encodeURIComponent(cur.p)+'&id='+encodeURIComponent(cur.id));ok=r.ok;raw=await r.text()}catch(e){raw=null}
@@ -66,7 +66,7 @@ $('vclose').onclick=close;
 $('view').onclick=e=>{if(e.target===$('view'))close()};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('view').hidden)close()});
 $('vfeed').addEventListener('toggle',e=>{const k=e.target.dataset?.k;if(k)e.target.open?opened.add(k):opened.delete(k)},true);
-$('vfeed').onclick=e=>{const t=e.target.closest('.text.long');if(t){expanded.add(t.dataset.k);t.classList.remove('long')}};
+$('vfeed').onclick=e=>{const b=e.target.closest('[data-expand]');if(b){const t=b.previousElementSibling;expanded.add(b.dataset.expand);t.classList.remove('long');t.tabIndex=-1;b.remove();t.focus({preventScroll:true})}};
 
 let gen=0;
 PAGES.sessions=async el=>{

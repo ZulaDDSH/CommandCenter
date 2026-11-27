@@ -62,8 +62,10 @@ header label{margin-left:auto;color:var(--dim);font-size:12.5px;display:flex;gap
 .ln{white-space:pre;padding:0 14px;min-height:1.5em}.ln.a{background:rgba(127,207,148,.12);color:var(--add)}.ln.d{background:rgba(240,120,106,.12);color:var(--del)}.ln.h{color:var(--violet);background:rgba(185,162,242,.07);margin-top:6px}.ln.m{color:var(--dim)}
 .user{background:var(--panel2);border-left:3px solid var(--paper);padding:10px 14px;border-radius:0 var(--r2) var(--r2) 0;margin-bottom:16px}
 .text{margin:14px 0 8px;max-width:980px;white-space:pre-wrap;word-wrap:break-word}
-.text.long{max-height:9.5em;overflow:hidden;position:relative;cursor:pointer}
-.text.long::after{content:"show more";position:absolute;bottom:0;left:0;right:0;padding-top:30px;background:linear-gradient(transparent,var(--bg) 70%);color:var(--accent);font-size:12px}
+.text.long{max-height:9.5em;overflow:hidden;position:relative}
+.text.long::after{content:"";position:absolute;bottom:0;left:0;right:0;height:30px;background:linear-gradient(transparent,var(--bg))}
+.text-expand{padding:2px 0;border:0;background:none;color:var(--accent);font-size:12px;cursor:pointer}
+.text-expand:hover{text-decoration:underline}
 code{font:12.5px var(--mono);background:var(--panel2);padding:1px 5px;border-radius:var(--r1);color:var(--paper)}
 details.tool{margin:4px 0;border:1px solid var(--line);border-radius:var(--r2);background:var(--panel);max-width:1100px}
 details.tool summary{list-style:none;cursor:pointer;padding:6px 10px;display:flex;gap:10px;align-items:baseline;font:12.5px var(--mono)}
