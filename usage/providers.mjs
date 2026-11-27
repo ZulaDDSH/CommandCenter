@@ -86,10 +86,11 @@ function parseStats(text) {
 }
 export async function opencode() {
   const [day, week] = await Promise.all([run(OPENCODE, ['stats', '--days', '1']), run(OPENCODE, ['stats', '--days', '7'])]);
-  let key = process.env.OPENCODE_API_KEY?.trim();
+  let key = process.env.CC_OPENCODE_USAGE_KEY?.trim() || process.env.OPENCODE_API_KEY?.trim();
   if (!key) try { key = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.local/share/opencode/auth.json'), 'utf8'))['opencode-go']?.key; } catch {}
   let windows = null, limits = '';
   if (!key) limits = 'Connect an OpenCode Go account to see its allowance.';
+  else if (typeof key !== 'string' || /\s/.test(key)) limits = 'The saved OpenCode Go key is malformed. Enter the key again without spaces.';
   else try {
     const response = await fetch('https://opencode.ai/zen/go/v1/usage', { headers: { Authorization: `Bearer ${key}`, 'x-opencode-session': 'command-center-usage' }, redirect: 'error', signal: AbortSignal.timeout(15000) });
     if (!response.ok) limits = response.status === 401 || response.status === 403 ? `OpenCode Go refused this account's usage request (HTTP ${response.status}). Reconnect the account or check its key.` : `OpenCode Go usage is unavailable (HTTP ${response.status}).`;
