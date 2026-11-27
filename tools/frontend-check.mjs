@@ -14,6 +14,7 @@ const task = { id: 'example-task', title: 'Director task with a readable title',
 const runningTask = { ...task, id: 'running-task', title: 'Running task example', status: 'running', role: 'worker', endedAt: null };
 const session = { id: 'example-session', provider: 'codex', title: 'Example session', model: 'example-model', cwd: '/workspace/project', mtime: now, live: 'recent', liveWhy: 'Recent activity', archived: false };
 const sessions = [session, ...Array.from({ length: 26 }, (_, i) => ({ ...session, id: `finished-${i}`, title: `Finished session ${i}`, live: 'finished', mtime: now - i - 1000 }))];
+const archivedFixture = new Set(), archiveRequests = [];
 const pullRequest = { number: 12, title: 'A pull request with a descriptive title', url: 'https://example.com/pr/12', head: 'example-branch', headSha: '1234567', headShaFull: '123456789', evidence: { ci: 'passing', review: 'approved' }, ci: { state: 'passing', pass: 1, fail: 0, pending: 0 }, updatedAt: stamp };
 let orch = { orchestrator: { mode: 'orchestrated', provider: 'codex' }, team: [], workerModels: {}, efforts: { codex: ['low', 'high'] } };
 const reply = pathname => ({
@@ -22,7 +23,7 @@ const reply = pathname => ({
   '/director': { goals: [], needsYou: [], dispatcher: { lastTick: now }, config: {}, machines: null, github: { repo: 'example/repo', at: stamp, prs: [pullRequest] } },
   '/orch': orch,
   '/budget': { providers: { codex: { enabled: true, installed: true, running: 0, max: 2 } } },
-  '/sessions': sessions, '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }] },
+  '/sessions': sessions.map(s => ({ ...s, archived: archivedFixture.has(s.id) })), '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }] },
   '/archive/sessions': [{ ...session, archived: true }], '/ext/list': { files: [], stash: { ok: true }, rows: [{ section: 'hooks', id: 'example-hook', rev: '1', on: true, name: 'Example hook', app: 'Codex', what: 'Runs before a tool starts.', source: 'Example settings', path: '/workspace/settings' }] },
   '/debug': [{ group: 'System', name: 'Example', ok: false, detail: 'Could not read /workspace/example-with-a-long-name/configuration.json', fix: 'Check the example configuration.' }],
   '/spawn-check': { clis: [], max: 1, roles: {} },
@@ -30,6 +31,13 @@ const reply = pathname => ({
 const publicDir = path.resolve('viewer/public');
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
+  if (req.method === 'POST' && url.pathname === '/session/meta') {
+    const id = url.searchParams.get('id');
+    archiveRequests.push(id);
+    res.writeHead(id === 'finished-0' ? 404 : 200, { 'Content-Type': 'application/json' });
+    if (id !== 'finished-0') archivedFixture.add(id);
+    return res.end(JSON.stringify(id === 'finished-0' ? { error: 'Session missing' } : { ok: true }));
+  }
   if (req.method === 'POST' && (url.pathname === '/orch/config' || url.pathname === '/setup')) {
     let raw = '';
     req.on('data', chunk => { raw += chunk; });
@@ -62,6 +70,8 @@ try {
   browser = await chromium.launch({ headless: true });
   fs.mkdirSync('frontend-artifacts', { recursive: true });
   for (const width of [1440, 390]) {
+    archivedFixture.clear();
+    archiveRequests.length = 0;
     config.providers.codex = true;
     orch.orchestrator = { mode: 'orchestrated', provider: 'codex' };
     const page = await browser.newPage({ viewport: { width, height: 900 } });
@@ -128,8 +138,20 @@ try {
         await page.locator('[data-session-provider="all"]').click();
         await page.locator('#session-state').selectOption('finished');
         assert.match(await page.locator('.sess-all .archive-pager span').innerText(), /26 matching · page 1 of 2/);
+        await page.locator('.srow[data-id="finished-0"] [data-session-select]').check();
         await page.locator('[data-session-page="next"]').click();
         assert.match(await page.locator('.sess-all .archive-pager span').innerText(), /page 2 of 2/);
+        await page.locator('.srow[data-id="finished-25"] [data-session-select]').check();
+        assert.match(await page.locator('[data-archive-selected]').innerText(), /2/);
+        const dialogs = [];
+        page.on('dialog', async d => { dialogs.push(d.message()); await d.accept(); });
+        await page.locator('[data-archive-selected]').click();
+        await page.waitForFunction(() => document.querySelector('[data-archive-selected]')?.textContent.includes('(1)'));
+        assert.deepEqual([...archiveRequests].sort(), ['finished-0', 'finished-25']);
+        assert.ok(archivedFixture.has('finished-25'));
+        assert.ok(!archivedFixture.has('finished-0'));
+        assert.ok(dialogs.some(x => x.includes('Session missing')));
+        await page.locator('[data-clear-selection]').click();
         await page.locator('#session-state').selectOption('recent');
         await page.locator('#session-search').fill('no matching session');
         await page.getByText('No sessions match these filters.').waitFor({ state: 'visible' });
