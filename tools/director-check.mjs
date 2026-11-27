@@ -17,7 +17,7 @@ const ok = (name, detail = '') => { results.push({ ok: true, name }); console.lo
 const bad = (name, detail = '') => { failed++; results.push({ ok: false, name, detail }); console.log(`  FAIL  ${name}${detail ? ` — ${detail}` : ''}`); };
 const must = (name, cond, detail = '') => { cond ? ok(name, detail) : bad(name, detail); return !!cond; };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const samePath = (a, b) => { const n = s => String(s ?? '').replace(/\\/g, '/').replace(/\/+$/, ''); return WIN ? n(a).toLowerCase() === n(b).toLowerCase() : n(a) === n(b); };
+const samePath = (a, b) => { const n = s => { let p = String(s ?? ''); try { p = fs.realpathSync.native(p); } catch {} return p.replace(/\\/g, '/').replace(/\/+$/, ''); }; return WIN ? n(a).toLowerCase() === n(b).toLowerCase() : n(a) === n(b); };
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.freebuff', 'backups', 'logs', 'tasks', 'reports', 'state', 'trash']);
 

@@ -181,3 +181,20 @@ route `POST /director/stage` is the way to add an entry from a running panel.
   stale writer cannot close a task that a newer owner re-claimed — remains the open gap from the
   previous entry; this stage does not change it.
 - Next: the lease-token compare-and-set, then a second machine.
+
+## 2026-11-27 — Stage 3b: CI's first run found a path comparison bug
+
+- Goal: none. The first upload triggered `.github/workflows/director-check.yml`, and it failed.
+- Exists: `tools/director-check.mjs:samePath` compared strings after normalising slashes and case.
+  Git reported the worktree under the 8.3 short name of the temp folder (`C:/Users/RUNNER~1/...`)
+  while Node built the expected path from the long name (`C:/Users/runneradmin/...`), so "the task
+  ran in <repo>/git/<task-id>" failed on the runner although the same check passed here. The app was
+  right; the check was not.
+- Changed: `samePath` resolves both sides with `fs.realpathSync.native` before comparing, falling back
+  to the raw string when a path does not exist. That also makes the comparison correct for the real
+  configuration, where `projectDir` is the symlink `E:/Command Center`.
+- Evidence: local `node tools/director-check.mjs` → 68 passed, 0 failed. The CI re-run for this commit
+  is the fix's real test.
+- Limitations: a local run cannot produce the 8.3 form, so CI is the only place that assertion is
+  exercised against it.
+- Next: watch the re-run; a green run is the first CI-verified pass of the whole check.
