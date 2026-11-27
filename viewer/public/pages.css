@@ -29,8 +29,9 @@
 .pg-fix{margin-top:4px;color:var(--amber);font-size:12.5px}
 .pg-fix code{color:var(--paper)}
 .pg-toc{display:flex;flex-direction:column;gap:2px;background:var(--panel);border-radius:var(--r2);padding:12px 16px;margin:14px 0}
-.pg-toc a{cursor:pointer;padding:2px 0}
-.pg-toc a:hover{text-decoration:underline}
+.pg-toc button{display:block;width:fit-content;max-width:100%;padding:2px 0;border:0;background:none;color:var(--accent);font:inherit;text-align:left;cursor:pointer}
+.pg-toc b button{display:inline}
+.pg-toc button:hover{text-decoration:underline}
 .pg-sec{border-top:1px solid var(--line);padding-top:4px}
 .pg-dl{list-style:none;padding-left:0}
 .pg-dl li b{display:inline-block;min-width:130px;color:var(--accent)}

@@ -406,7 +406,7 @@ PAGES.guide = async el => {
   if (tab !== 'guide') return;
   const secs = guideSections(s);
   el.innerHTML = `<div class="pg pg-guide" id="pg-guide"><h2>Guide</h2>
-<div class="pg-toc"><b><a data-go="pg-part1">Part 1: For people</a> · <a data-go="pg-part2">Part 2: For AI agents</a></b>${secs.map(([id, t], i) => `<a data-go="pg-s-${id}">${i + 1}. ${esc(t)}</a>`).join('')}</div>
+<div class="pg-toc"><b><button type="button" data-go="pg-part1">Part 1: For people</button> · <button type="button" data-go="pg-part2">Part 2: For AI agents</button></b>${secs.map(([id, t], i) => `<button type="button" data-go="pg-s-${id}">${i + 1}. ${esc(t)}</button>`).join('')}</div>
 <h2 id="pg-part1">Part 1: For people</h2><p class="pg-hint">How the Command Center works, in plain words.</p>
 ${secs.map(([id, t, h], i) => `<section class="pg-sec" id="pg-s-${id}"><h3>${i + 1}. ${esc(t)}</h3>${h}</section>`).join('')}
 <h2 id="pg-part2">Part 2: For AI agents</h2>
