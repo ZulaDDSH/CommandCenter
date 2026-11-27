@@ -17,6 +17,7 @@ const sessions = [session, ...Array.from({ length: 26 }, (_, i) => ({ ...session
 const archivedFixture = new Set(), archiveRequests = [];
 const pullRequest = { number: 12, title: 'A pull request with a descriptive title', url: 'https://example.com/pr/12', head: 'example-branch', headSha: '1234567', headShaFull: '123456789', evidence: { ci: 'passing', review: 'approved' }, ci: { state: 'passing', pass: 1, fail: 0, pending: 0 }, updatedAt: stamp };
 let orch = { orchestrator: { mode: 'orchestrated', provider: 'codex' }, team: [], workerModels: {}, efforts: { codex: ['low', 'high'] } };
+let teamItems = [{ id: 'b1', kind: 'board', at: stamp, from: 'director', to: 'team', provider: 'director', taskId: 'running-task', text: 'Wave check-in sent to team.', sessionRef: { provider: 'codex', id: 'example-session' } }, { id: 'r1', kind: 'report', at: stamp, from: 'codex-running-task', to: 'director', provider: 'codex', taskId: 'running-task', title: 'Running task example', status: 'running', text: 'Working on task.', sessionRef: { provider: 'codex', id: 'example-session' } }];
 const reply = pathname => ({
   '/api': [], '/setup': setup, '/setup/folders': { repos: [] }, '/models': { codex: [{ id: 'example-model', name: 'Example Model' }] }, '/board': [],
   '/tasks': { tasks: [task, runningTask], dispatcher: { lastTick: now } },
@@ -26,7 +27,8 @@ const reply = pathname => ({
   '/sessions': sessions.map(s => ({ ...s, archived: archivedFixture.has(s.id) })), '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }] },
   '/archive/sessions': [{ ...session, archived: true }], '/ext/list': { files: [], stash: { ok: true }, rows: [{ section: 'hooks', id: 'example-hook', rev: '1', on: true, name: 'Example hook', app: 'Codex', what: 'Runs before a tool starts.', source: 'Example settings', path: '/workspace/settings' }] },
   '/debug': [{ group: 'System', name: 'Example', ok: false, detail: 'Could not read /workspace/example-with-a-long-name/configuration.json', fix: 'Check the example configuration.' }],
-  '/spawn-check': { clis: [], max: 1, roles: {} },
+  '/spawn-check': { clis: [{ pid: 1234, model: 'DeepSeek V4.1 Flash', minsLeft: 45, working: [], queued: [], pending: false }], max: 5, why: 'CLI pid 1234 is idle with 45m left.' },
+  '/team-feed': { items: teamItems, counts: { total: teamItems.length, board: 1, tasks: 1 } },
 }[pathname]);
 const publicDir = path.resolve('viewer/public');
 const server = http.createServer((req, res) => {
@@ -47,6 +49,16 @@ const server = http.createServer((req, res) => {
       else { if (body.providers) Object.assign(config.providers, body.providers); if (body.maxParallel) Object.assign(config.maxParallel, body.maxParallel); }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(url.pathname === '/orch/config' ? orch : setup));
+    });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/board') {
+    let raw = '';
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      teamItems = [{ id: `b-${teamItems.length + 1}`, kind: 'board', at: new Date().toISOString(), from: url.searchParams.get('from') || 'you', to: 'team', provider: 'director', taskId: null, text: raw.trim(), sessionRef: null }, ...teamItems];
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('posted');
     });
     return;
   }
@@ -167,6 +179,16 @@ try {
         await page.locator('[data-session-provider="claude"]').click();
         await page.getByText('No sessions match these filters.').waitFor({ state: 'visible' });
         assert.equal(await page.evaluate(() => document.activeElement.dataset.sessionProvider), 'claude');
+        assert.equal(await page.locator('#session-state option[value="unknown"]').count(), 0);
+        await page.locator('[data-session-provider="freebuff"]').click();
+        await page.locator('.fb-usage-strip').getByText(/45m left/).waitFor({ state: 'visible' });
+        await page.locator('[data-session-provider="team"]').click();
+        await page.locator('.team-view').getByText('Wave check-in sent to team.').waitFor({ state: 'visible' });
+        const teamInput = page.locator('#team-note');
+        await teamInput.fill('Director reply check');
+        await teamInput.press('Enter');
+        await page.locator('.team-view').getByText('Director reply check').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#team-note').inputValue(), '');
         await page.locator('[data-session-provider="all"]').click();
         await page.locator('#session-state').selectOption('finished');
         assert.match(await page.locator('.sess-all .archive-pager span').innerText(), /26 matching · page 1 of 2/);

@@ -123,9 +123,9 @@ const setup = limits => { const g = mk(limits), d = dir(g); D.linkTask(g.id, d.i
   must('status: a live process with a fresh write is running', v({ pid: 42 }) === 'running');
   must('status: a fresh write with no process id is only recent activity', v({}) === 'recent');
   must('status: a dead process id is only recent activity', v({ pid: 42 }, dead) === 'recent');
-  must('status: a live process with no recent write is unknown, not running', v({ pid: 42, mtime: now - 3e5 }) === 'unknown');
-  must('status: an old session is unknown, never finished', v({ mtime: now - 864e5 }) === 'unknown');
-  must('status: a missing time is unknown', v({ mtime: 0 }) === 'unknown');
+  must('status: a live process with no recent write is idle, not running', v({ pid: 42, mtime: now - 3e5 }) === 'idle');
+  must('status: an old session is idle, never finished or unknown', v({ mtime: now - 864e5 }) === 'idle');
+  must('status: a missing time is idle, never unknown', v({ mtime: 0 }) === 'idle');
   must('status: a completed transcript is finished', v({ ended: true, mtime: now - 864e5 }) === 'finished' && v({ ended: true }) === 'finished');
   const many = Array.from({ length: 21 }, (_, i) => ({ id: `s${i}` }));
   const capped = M.capRows('codex', many, 15);
