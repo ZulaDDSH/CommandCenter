@@ -1,8 +1,9 @@
 # Director stages
 
 Append-only. Each stage records what exists, what changed, evidence, limitations and next steps.
-Only one writer appends at a time (`state/director.lock`, see `lib/director.mjs:appendStage`); the
-route `POST /director/stage` is the way to add an entry from a running panel.
+There is no code writer for this file: whoever owns the work appends the next stage directly, one
+writer at a time. The panel used to expose `POST /director/stage` and a locked appender for this; both
+were removed so the log has a single writer and no second path that could interleave an entry.
 
 ## 2026-11-27 — Stage 1: one goal end to end
 
@@ -395,3 +396,23 @@ route `POST /director/stage` is the way to add an entry from a running panel.
 - CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45946597647 — success, `124 passed, 0 failed`
   on `windows-latest`, for commit `b498e09`. The only later change is this line and the same link in
   `FEATURE-PARITY.md`.
+
+## 2026-11-27 — Stage 8: one writer for the stage log
+
+- Goal: none.
+- Exists: `POST /director/stage` called `lib/director.mjs:appendStage`, which appended to
+  `docs/director/STAGES.md` under `state/director.lock` and kept a `stages` list in `director.json`.
+  Nothing in the panel, the UI or the CLI called it: every stage in this file was appended directly, so
+  it was a second writer with no users and a second copy of the same facts.
+- Changed: the route left `lib/routes/director.mjs`, and `appendStage`, its `withDocLock` helper, the
+  `oneLine` formatter, the `STAGES` path and the now-unused `os` import left `lib/director.mjs`. Existing
+  `stages` entries in `director.json` are still loaded and written back, so nothing was deleted. This
+  header, `docs/ai-guide/70-director.md` and `FEATURE-PARITY.md` now say the log has one writer and no
+  panel route.
+- Evidence: `node tools/director-check.mjs` → 126 passed, 0 failed (124 before). Two new assertions:
+  `POST /director/stage` answers 404 and creates no `docs/director/STAGES.md` in the app copy, and
+  `lib/director.mjs` no longer contains `appendStage`.
+- Limitations: "one writer" is no longer enforced by code — it holds because the panel has no path to
+  the file and whoever edits it does so one at a time. Two hand edits at once could still interleave.
+- Next: if agents should write this log again, bring back one writer that appends through the store lock
+  instead of a route-level writer beside it.

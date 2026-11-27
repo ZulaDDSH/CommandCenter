@@ -75,7 +75,7 @@ machine. What it avoids: an unbuildable rewrite and a second source of truth for
 | Machine inventory and signed hello | `lib/machines.mjs`, `POST /machine/hello` |
 | PR / head / review / public CI visibility | `lib/github.mjs` (read-only `gh`) |
 | Merge approval pinned to a commit, with review-bot and CI guardrails | `POST /director/merge-approval`, `/director/merge` |
-| Append-only stage log with a single-writer lock | `lib/director.mjs:appendStage` |
+| Append-only stage log with one writer | no code writer: `POST /director/stage` and `lib/director.mjs:appendStage` were removed, the route answers 404 and nothing else writes the file |
 
 ### Missing, and deliberately not faked
 

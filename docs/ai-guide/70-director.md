@@ -79,6 +79,6 @@ you control.
 
 ## Recording a stage
 
-`POST /director/stage` with `{title, goalId, exists, changed, evidence, limitations, next}` appends a
-section to `docs/director/STAGES.md` while holding `state/director.lock`. If another writer holds the
-lock, nothing is written and the call fails; it never overwrites.
+`docs/director/STAGES.md` is append-only and has no panel route: whoever owns the work appends the next
+stage directly, one writer at a time. `POST /director/stage` and its locked appender were removed, so a
+running panel cannot write the log and the call answers 404.

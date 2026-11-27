@@ -589,6 +589,10 @@ try {
   const wrong = await postJson(port3, '/director/merge', { number: 7, repo: 'a/b', confirm: '8' });
   must('merge refuses a confirmation that is not the PR number', wrong.status === 400 && /Type the pull request number/.test(wrong.body?.error ?? ''), `HTTP ${wrong.status} — ${wrong.body?.error ?? ''}`);
 
+  const noStage = await postJson(port3, '/director/stage', { title: 'must not be written', evidence: 'x' });
+  must('the panel has no second writer for the stage log', noStage.status === 404 && !fs.existsSync(path.join(app, 'docs', 'director', 'STAGES.md')), `HTTP ${noStage.status}`);
+  must('the director module has no stage writer left', !/appendStage/.test(fs.readFileSync(path.join(app, 'lib', 'director.mjs'), 'utf8')));
+
   const doc = await http(port3, '/director');
   must('the dashboard still answers with goals', doc.status === 200 && Array.isArray(doc.body?.goals), `HTTP ${doc.status}`);
 
