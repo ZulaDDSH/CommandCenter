@@ -5,7 +5,7 @@ import net from 'node:net';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const KEEP = process.argv.includes('--keep');
@@ -18,6 +18,22 @@ const bad = (name, detail = '') => { failed++; results.push({ ok: false, name, d
 const must = (name, cond, detail = '') => { cond ? ok(name, detail) : bad(name, detail); return !!cond; };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const samePath = (a, b) => { const n = s => { let p = String(s ?? ''); try { p = fs.realpathSync.native(p); } catch {} return p.replace(/\\/g, '/').replace(/\/+$/, ''); }; return WIN ? n(a).toLowerCase() === n(b).toLowerCase() : n(a) === n(b); };
+
+const storePath = () => path.join(app, 'tasks.json');
+const readStore = () => { try { return JSON.parse(fs.readFileSync(storePath(), 'utf8')); } catch { return []; } };
+const setLease = (id, lease) => {
+  const list = readStore();
+  const t = list.find(x => x.id === id);
+  if (!t) throw new Error(`no ${id} in the store`);
+  if (lease) t.lease = lease; else delete t.lease;
+  fs.writeFileSync(storePath() + '.check', JSON.stringify(list, null, 2));
+  fs.renameSync(storePath() + '.check', storePath());
+  return t;
+};
+const stamp = (ms = 120000) => ({ owner: 'other-host:1:x', at: new Date().toISOString(), ttl: 120000, expiresAt: new Date(Date.now() + ms).toISOString() });
+const fakeToken = () => crypto.randomBytes(6).toString('hex');
+let secondWriter = null;
+const second = async () => (secondWriter ??= await import(pathToFileURL(path.join(app, 'lib', 'tasks.mjs')).href));
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.freebuff', 'backups', 'logs', 'tasks', 'reports', 'state', 'trash']);
 
@@ -94,14 +110,15 @@ function initRepo(dir) {
 const FAKE = `import fs from 'node:fs';
 import path from 'node:path';
 
+if (process.argv.slice(2)[0] === 'debug') process.exit(0);
 const chunk = new Promise(res => {
   let s = '';
   process.stdin.setEncoding('utf8');
-  process.stdin.on('data', d => { s += d; });
+  process.stdin.on('data', d => { s += d; if (s.includes('the whole line')) res(s); });
   process.stdin.on('end', () => res(s));
   process.stdin.on('error', () => res(s));
 });
-const input = await Promise.race([chunk, new Promise(r => setTimeout(() => r(''), 2000))]);
+const input = await Promise.race([chunk, new Promise(r => setTimeout(() => r(''), 30000))]);
 const m = /the file at:\\s*(.+?)\\s*\\(the whole line/.exec(input);
 if (!m) { console.log('fake agent: no task pointer on stdin'); process.exit(0); }
 const taskFile = m[1];
@@ -356,6 +373,11 @@ try {
   const held = await postJson(port1, '/tasks', { text: 'Held by the paused goal.', title: 'held check', provider: 'codex', goal: goalId });
   const heldId = held.body?.id;
   must('a task can be added under a paused goal', held.status === 200 && !!heldId, `HTTP ${held.status}${held.body?.error ? ` — ${held.body.error}` : ''}`);
+  setLease(heldId, { ...stamp(), token: fakeToken() });
+  const refusedCancel = await postJson(port1, `/tasks/${heldId}/cancel`, {});
+  must('the panel refuses to cancel a task leased elsewhere', refusedCancel.status === 409 && refusedCancel.body?.code === 'lease-foreign', `HTTP ${refusedCancel.status} ${refusedCancel.body?.code ?? ''}`);
+  must('the held task was not cancelled by the refused request', (await getJson(port1, '/tasks'))?.tasks?.find(x => x.id === heldId)?.status === 'waiting');
+  setLease(heldId, null);
   const gated = await until(async () => {
     const b = await getJson(port1, '/tasks');
     const t = (b?.tasks ?? []).find(x => x.id === heldId);
@@ -417,9 +439,47 @@ try {
   const agent2 = ((dash2?.goals ?? []).find(g => g.id === goal2)?.agents ?? []).find(a => a.taskId === task2);
   must('the Director panel shows that worktree and owner', !!agent2?.worktree && !!agent2?.leaseOwner, `${agent2?.worktree ?? 'no worktree'} / ${agent2?.leaseOwner ?? 'no owner'}`);
 
+  console.log('\nLease fencing (a writer that does not hold the lease cannot close the task)');
+  const beforeKill = readStore().find(x => x.id === task2);
+  const token1 = beforeKill?.lease?.token;
+  const otherToken = fakeToken(), expiredToken = fakeToken(), takeoverToken = fakeToken();
+  must('the running task carries a lease token', !!token1, token1 ?? 'no token');
+  const writer = await second();
+  const record = () => JSON.stringify(readStore().find(x => x.id === task2) ?? null);
+  const baseline = record();
+
+  const wrongToken = writer.closeTask(task2, 'done', 'stale writer', { token: otherToken });
+  must('a writer with the wrong token is refused', wrongToken.ok === false && wrongToken.code === 'lease-lost', wrongToken.code ?? 'accepted');
+  must('the refused close left the task untouched', record() === baseline, 'task record changed');
+
+  setLease(task2, { ...stamp(), token: takeoverToken });
+  const stale = writer.closeTask(task2, 'done', 'previous owner', { token: token1 });
+  must('the previous owner cannot close a re-claimed task', stale.ok === false && stale.code === 'lease-lost', stale.code ?? 'accepted');
+  must('the new owner still holds it after that attempt', readStore().find(x => x.id === task2)?.lease?.token === takeoverToken);
+  must('the task is still running, not closed', readStore().find(x => x.id === task2)?.status === 'running', readStore().find(x => x.id === task2)?.status);
+
+  const asPanel = writer.closeTask(task2, 'done', 'panel', { panel: true });
+  must('a panel does not close a task leased to another owner', asPanel.ok === false && asPanel.code === 'lease-foreign', asPanel.code ?? 'accepted');
+
+  setLease(task2, { ...stamp(-60000), token: expiredToken, expiresAt: new Date(Date.now() - 60000).toISOString() });
+  const expired = writer.closeTask(task2, 'done', 'expired lease', { token: expiredToken });
+  must('an expired lease cannot close a task', expired.ok === false && expired.code === 'lease-expired', expired.code ?? 'accepted');
+  must('the expired-lease attempt also changed nothing', readStore().find(x => x.id === task2)?.status === 'running', readStore().find(x => x.id === task2)?.status);
+
+  setLease(task2, beforeKill.lease);
+  must('the original lease is back in place', readStore().find(x => x.id === task2)?.lease?.token === token1);
+
   killPanel(current);
   current = null;
   await sleep(2000);
+
+  const afterKill = readStore().find(x => x.id === task2);
+  must('the killed panel left the task running under its lease', afterKill?.status === 'running' && afterKill?.lease?.token === token1, `${afterKill?.status} / ${afterKill?.lease?.token}`);
+  setLease(task2, { ...stamp(), token: takeoverToken });
+  const late = writer.closeTask(task2, 'done', 'crashed writer coming back', { token: token1 });
+  must('a crashed writer cannot close a task another owner has taken', late.ok === false && late.code === 'lease-lost', late.code ?? 'accepted');
+  must('the takeover lease survived that attempt', readStore().find(x => x.id === task2)?.lease?.token === takeoverToken);
+  setLease(task2, afterKill.lease);
 
   const port3 = await freePort();
   current = await startPanel({ app, bin, port: port3, log });
@@ -431,6 +491,8 @@ try {
   must('the task recovered as interrupted, not failed', !!recovered, recovered ? '' : 'not interrupted within 20 s');
   const after3 = (recovered?.tasks ?? []).filter(t => t.id === task2);
   must('exactly one task carries that id', after3.length === 1, `${after3.length} copies`);
+  const recLease = readStore().find(x => x.id === task2)?.lease;
+  must('recovery re-claimed the task under a new token', !!recLease?.token && recLease.token !== token1, `${recLease?.token ?? 'none'} vs ${token1 ?? 'none'}`);
   must('the worktree path is unchanged', samePath(after3[0]?.worktree?.path, wt2), `${after3[0]?.worktree?.path} vs ${wt2}`);
   must('the worktree still exists', !!wt2 && fs.existsSync(wt2));
   const fresh = await until(async () => { const b = await getJson(port3, '/tasks'); return b?.dispatcher?.lastTick && Date.now() - b.dispatcher.lastTick < 15000 ? b.dispatcher : null; }, 15000);

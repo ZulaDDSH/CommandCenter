@@ -336,9 +336,14 @@ http.createServer(async (req, res) => {
     }
     const tm = /^\/tasks\/([\w-]+)\/(cancel|retry|done)$/.exec(u.pathname);
     if (tm && req.method === 'POST') {
-      const t = tm[2] === 'cancel' ? tasks.cancel(tm[1]) : tm[2] === 'retry' ? tasks.retry(tm[1]) : tasks.markDone(tm[1]);
-      if (t && tm[2] === 'retry') tasks.tick();
-      return t ? send(res, 200, t) : send(res, 400, { error: 'That task cannot do that now.' });
+      if (tm[2] === 'retry') {
+        const t = tasks.retry(tm[1]);
+        if (t) tasks.tick();
+        return t ? send(res, 200, t) : send(res, 400, { error: 'That task cannot do that now.' });
+      }
+      const r = tm[2] === 'cancel' ? tasks.cancel(tm[1]) : tasks.markDone(tm[1]);
+      if (r.ok) return send(res, 200, r.task);
+      return send(res, r.code === 'not-found' ? 404 : 409, { error: r.why, code: r.code });
     }
     if (u.pathname === '/task-log') {
       const t = tasks.get(q('id'));

@@ -49,7 +49,7 @@ To check it, with no effect on your real install:
 node tools/director-check.mjs
 ```
 
-It parse-checks every module, copies the app to a temp folder, makes a scratch git repo and a fake `codex`, boots the panel there on 127.0.0.1, and proves the slice: routes, one goal assigned and finished, the worktree, the lease, the evidence, pause/stop/resume, the signed machine hello, the merge refusals, and recovery from a kill mid-task. It starts no real provider and changes nothing outside the temp folder. `--keep` leaves the folder and prints the panel log. The same command is what `.github/workflows/director-check.yml` runs.
+It parse-checks every module, copies the app to a temp folder, commits that copy as a git repository and writes a fake `codex`, boots the panel there on 127.0.0.1, and proves the slice: routes, one goal assigned and finished, the worktree, the lease, the fence that refuses a close from any other writer, the evidence, pause/stop/resume, the signed machine hello, the merge refusals, and recovery from a kill mid-task. It starts no real provider and changes nothing outside the temp folder. `--keep` leaves the folder and prints the panel log. The same command is what `.github/workflows/director-check.yml` runs.
 
 ## Files
 
@@ -72,7 +72,7 @@ It parse-checks every module, copies the app to a temp folder, makes a scratch g
 | `lib/github.mjs` | Pull requests, heads, review decisions and public CI from the `gh` CLI, read-only. Merge guardrails live here too. |
 | `lib/routes/director.mjs` | `/director`, goals, machines, GitHub, merge approval and the stage log. |
 | `tools/director-check.mjs` | The one command that proves the director stage in a throwaway folder (see the Director section). |
-| `.github/workflows/director-check.yml` | Runs that command on `windows-latest` once the project has a remote. |
+| `.github/workflows/director-check.yml` | Runs that command on `windows-latest` for every push to `main`. |
 | `hooks/freebuff-one-cli.mjs` | Claude Code hook: a new Freebuff CLI only when the panel allows it. |
 | `relay/` | Patched agent-interop-runtime files. Setup has an Apply patches button; or run `node relay/reapply.mjs`, then restart the relay MCP server. |
 | `start.ps1` | Starts the panel and `opencode serve` on 4096, skipping whichever already runs. |

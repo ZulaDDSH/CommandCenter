@@ -58,7 +58,7 @@ machine. What it avoids: an unbuildable rewrite and a second source of truth for
 |---|---|---|
 | Restart recovery | Every `running` task became `failed` | Freebuff tasks continue the same chat; others become `interrupted` and wait for a person |
 | Orchestrator control | No pause, no goal limits, `hold` was advisory | Goals with pause/resume/stop/steer and per-goal live and task limits |
-| Concurrency ownership | One process assumed; a second panel could start the same tasks | Lease + heartbeat per live task; one dispatcher per folder via `state/panel.lock` |
+| Concurrency ownership | One process assumed; a second panel could start the same tasks, and any writer could close one | Closed in Stage 4: a close must present the current lease token, else it is refused as `lease-lost`, `lease-expired` or `lease-foreign` and nothing is written; one dispatcher per folder via `state/panel.lock` |
 | Worktrees | App never made one; tasks edited the main checkout | `git/<task-id>` per task, refuse a folder this task did not create |
 | Costs | Per provider only | Per goal: live/task counts and run minutes; hours stay provider-level and are labelled as such |
 | Debug | Orchestrator checks only | `lib/checks/director.mjs` adds goals file, state folder, worktrees, gh, peers, dispatcher lock |
@@ -101,7 +101,9 @@ Run against a copy of the app in `%TEMP%`, with its own `config.json`, `tasks.js
 | A goal becomes an assigned task | `POST /director/goal` → goal and task, `goal.taskId` matches, task carries `goal`; dispatcher ran it on `codex` |
 | Worktree per task | `<repo>/git/<task-id>` exists, `branch cc/<task-id>`, `git worktree list` knows it, main checkout `git status` still clean |
 | Worktree is real, not a fallback | the path is never the project folder, the task carries no `worktreeNote`, the Director panel lists the same path with `lease.owner`, and a task in a folder that is not a repository still reports the fallback |
-| Lease and heartbeat | `lease.owner` and `heartbeatAt` observed on the running task |
+| Lease and heartbeat | `lease.owner`, a `lease.token` and `heartbeatAt` observed on the running task |
+| Fenced close | a second writer with the wrong token got `lease-lost` and the task record was left byte-identical; the previous owner was refused after a re-claim; a panel on a foreign lease got `lease-foreign`, and 409 with that code over HTTP; an expired lease got `lease-expired` |
+| Re-claim after a crash | after a kill, a lease written by another owner survived the returning writer's attempt (`lease-lost`); the new panel re-claimed under a different token and the task came back `interrupted` |
 | Result with evidence | report file with bytes and quoted head, `exitCode 0`, worktree head commit, goal stage `done` |
 | Pause gates the queue | a task added while paused stayed `waiting` for 6 s with reason `Paused: …` |
 | Stop and resume | stop cancelled the held task and set the goal `stopped`; resume let a new task run |

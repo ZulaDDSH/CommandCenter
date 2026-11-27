@@ -514,3 +514,7 @@ The app folder is its own repository root, which is what lets `config.json` keep
 ## lib/director.mjs:snapshot (agents)
 
 Each `agents` entry carries the checkout and the lease of a live run: `worktree`, `branch`, `leaseOwner`, `leaseAt`, plus `root`. It lists only a task with a running process (`pid` or `cli`), because the card labels anything without one as `discovered` and a queued task is not a discovered session. A goal's own root task is included (it was filtered out before), because that task is the one that can hold a checkout while the card showed no agent at all. `viewer/public/director.js:goalCard` renders the path, the branch and the owner.
+
+## lib/tasks.mjs:closeTask
+
+The only place a task is closed, and the fence itself. It reads the lease from `tasks.json` rather than from memory, then requires proof: a runner passes the `token` it was given by `claim` (renewal keeps the token, a takeover mints a new one) and the panel passes `panel: true` and must own the lease. A mismatch is refused with `lease-lost`, `lease-expired`, `lease-foreign` or `already-closed`, and a refusal writes nothing and kills nothing. `finish`, `cancel` and `markDone` all route through it, so a new close path cannot forget the check. `recoverAtBoot` claims a task only when `holderGone` says the previous holder is gone.

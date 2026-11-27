@@ -201,3 +201,45 @@ route `POST /director/stage` is the way to add an entry from a running panel.
 - CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45941431918 — success, `68 passed, 0 failed`
   on `windows-latest`. This is the first CI-verified pass of the whole check, and it is the run that
   proves the worktree path on a machine that is not this one.
+
+## 2026-11-27 — Stage 4: the lease is a fence, not a note
+
+- Goal: none. The gap was named in Stage 3a: a close wrote a task's outcome without checking who held
+  its lease, so a writer that had been interrupted, resumed, or whose lease expired and was re-claimed
+  could close a task another owner was running.
+- Exists: one dispatcher per folder (`state/panel.lock`) made that unlikely, but nothing in the store
+  enforced it. The lease was descriptive: `heartbeat()` stamped `{owner, at, ttl}` and recovery read
+  it, while `finish()`, `cancel()` and `markDone()` closed tasks unconditionally. Boot recovery ran at
+  module load, so merely starting a second panel marked another panel's running tasks interrupted.
+- Changed:
+  - `lib/tasks.mjs:claim` gives every claim a token. Renewal keeps the token; a takeover (no lease, an
+    expired lease, a different owner) mints a new one. `heartbeat()` renews its own lease and now
+    leaves a fresh foreign lease alone instead of taking it over.
+  - `lib/tasks.mjs:closeTask` is the one place a task is closed. It reads the lease from `tasks.json`,
+    not from memory, and refuses unless the caller holds it: a runner proves it with its claim token,
+    the panel proves it by owning the lease. Refusals are distinguishable — `lease-lost` (replaced),
+    `lease-expired`, `lease-foreign`, `already-closed` — and a refusal writes nothing and kills
+    nothing. `finish()`, `cancel()` and `markDone()` all go through it, so every close path is fenced,
+    including the provider exit handler, the Freebuff paths, goal stop and the panel's task actions.
+  - `lib/tasks.mjs:recoverAtBoot` runs only after the dispatcher lock is taken, and takes a task over
+    only when `holderGone` says the holder is gone: lease expired, another host, or a local process
+    that no longer exists. A live holder keeps its task.
+  - `viewer/server.mjs` and `lib/routes/director.mjs` answer a fenced refusal with 409 and its code,
+    so the panel can tell "another owner has this" from a generic failure.
+  - `tools/director-check.mjs`: the fake agent resolves the task pointer when it arrives instead of
+    giving up after 2 s (that cap made the interruption test depend on `cmd.exe` startup time, and it
+    was hiding a short run as a long one), and exits at once for `debug models`.
+- Evidence: `node tools/director-check.mjs` → 84 passed, 0 failed. New assertions: a wrong token is
+  refused as `lease-lost` with the task record byte-identical; the previous owner cannot close a
+  re-claimed task; a panel cannot close a foreign-lease task (`lease-foreign`, and 409 over HTTP); an
+  expired lease is refused as `lease-expired`; after a kill, a writer that comes back cannot close a
+  task another owner has taken; recovery re-claims under a new token. The uninterrupted slice,
+  evidence, pause/stop/resume and resume-in-the-same-worktree checks are unchanged and pass.
+- Limitations: this fences the store, not reality. A writer holding a valid, unexpired lease and a live
+  child can still be wrong about the world. Two panels on one folder still rely on `state/panel.lock`
+  for who dispatches; the fence only guarantees that an outcome comes from the current lease holder.
+  No work is dispatched to another machine yet, so the cross-machine case is designed but unexercised.
+   is still written whole, so the fence protects the closing task’s outcome, not two writers
+  editing unrelated tasks at the same moment; that still needs one dispatcher per folder.
+- Next: remote dispatch would claim with this token, and the local panel would refuse to close what a
+  peer holds.
