@@ -430,9 +430,9 @@ One POST route, `/session/meta?p=&id=&a=rename|archive|unarchive|delete`, behind
 
 One table renderer is shared by the Codex, Cursor, OpenCode and Claude tabs. Archived rows are left out unless "Show N archived" is on for that provider. `window.sessReload` is set by whichever list rendered last, so the `#view` modal can refresh the list behind it. The Freebuff sidebar in `viewer/public/app.js` uses its own markup; `/api` adds `label` and `hidden` there so the existing `archived` (report written) keeps its meaning.
 
-## viewer/public/orch.js:paint
+## viewer/public/director.js:build
 
-The Tasks and Board tabs are gone (user, 2026-11-16: "Tasks/board should all be part of orchestrator and controlled by the ai orchestraror agent, not the user. This is for vibe coders."). The Orchestrator tab now holds, top to bottom: the goal box and live task tree (`window.TASKS` from tasks.js, rendered into `#or-tasks`), the team board read-only (last 20 notes from `/board?json=1`), the budget cards, and the old mode/provider/worker-model form folded into a `<details>` Settings box. tasks.js calls `PAGES.orch(el, true)` every 4.5 s; the `quick` flag skips `/budget` unless 60 s have passed, so the budget is not re-read on every tick. A saved `cc-tab` of `tasks` or `board` is mapped to `orch` in app.js.
+The Orchestrator tab was folded into the Director tab (user, 2026-11-27: the director and the orchestrator are the same thing; the director makes goals, sends sessions to models, everything reports to it and it keeps the person updated). One tab now holds, top to bottom: the chat (thread, composer, status line counting what was handed out), what was handed out, Needs you, then collapsible boxes: the full task tree (`window.TASKS(tasksEl)` from tasks.js, rendered into a persistent element `tasksEl` that `draw` re-attaches after each redraw so the open logs and scroll are not lost), the team board (last 20 notes from `/board?json=1`), the budget cards, and Advanced. The director and its model checkboxes sit in a Settings box together with the default model for each provider (the old Orchestrator worker-model form). The old simple/orchestrated mode switch has no control any more: choosing a director writes mode `orchestrated` (`saveDirector`), while saving the team or the default models keeps the saved mode (`saveOrch`). Antigravity cannot be the director (`lib/routes/orch.mjs`, `lib/tasks.mjs:orch`, the picker): its limit is one task, and a director on it would hold the only slot so every task handed to it would wait forever. The open task logs keep their scroll offsets across a redraw (`keep`/`restore`; browsers reset scrollTop on a re-attached element). A saved `cc-tab` of `tasks`, `board` or `orch` is mapped to `director` in app.js. `viewer/public/orch.js` and `orch.css` are deleted.
 
 ## viewer/public/tasks.js:row
 
@@ -559,6 +559,70 @@ The tab is a director picker, one message box and a feed. The picker saves the e
 
 The guard only refused on bad signals, so a pull request with no review-bot check at all passed it. It now also refuses unless the rollup holds a successful status named `reviewBotContext` (default `pr-review/ready-to-merge`) for the head GitHub reports. The bot's findings live in its own UI behind a GitHub sign-in and cannot be read here, so a pass is necessary and not sufficient: the person's approval for that commit (`lib/routes/director.mjs` merge route) is still required, and merging from the panel is still off until `mergeEnabled` is set.
 
+## lib/config.mjs:DEFAULTS (team)
+
+`team` is the list of models the person ticked in the Director tab: `[{ provider, model, effort }]`. Empty means the director may pick any model. `orchestrator.effort` is the director's own reasoning level. Both are saved by `POST /orch/config` (`lib/routes/orch.mjs`), which validates provider, model name (`MODEL_RE`) and effort against `lib/models.mjs:EFFORTS`.
+
+## lib/models.mjs:EFFORTS
+
+Reasoning levels per provider, as each CLI takes them: Claude `--effort` (low, medium, high, xhigh, max), Codex `model_reasoning_effort` (low, medium, high, xhigh), OpenCode `--variant` (low, medium, high, max). Cursor and Freebuff expose no level, so the menu shows none for them and nothing is passed. A level the model itself rejects shows up in the task log and the failure note.
+
+## lib/tasks.mjs:effortFor
+
+The level a task runs at: the director's own task uses `orchestrator.effort`; a worker uses the level of its team entry (same provider and model); otherwise Codex falls back to `models.codexEffort` and OpenCode to `high` (what it was before). The director cannot override a level: the person's menu is the authority. `childCall` turns it into the CLI flag.
+
+## lib/tasks.mjs:teamCheck
+
+When a team is ticked and the task is a child of an orchestrator, `add` and `approve` refuse a provider and model that are not on the team, and refuse a task with no provider and model, with a message that lists the team so the director can correct itself. The steer route in `lib/routes/director.mjs` hands its note to the first team entry for the same reason.
+
+## lib/tasks.mjs:childEnv (login only)
+
+Everything signs in through each provider's own login (Claude and Codex through the browser, Cursor, OpenCode and Freebuff through theirs). A key left in the environment would override that login silently and bill a different account, so `childEnv` removes `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY` and `CURSOR_API_KEY` from what a started agent sees. The panel never reads, stores or asks for a key.
+
+## lib/tasks.mjs:authFailure
+
+A failed run whose last error line looks like a sign-in problem (expired OAuth session, 401, not logged in) sets `needsLogin` on the task and says so in its note. `lib/director.mjs:snapshot` turns that into a "log in" item and `viewer/public/director.js` offers a Log in button that opens the provider's own login in a terminal (`POST /auth`). The panel cannot see whether a login has expired before a run uses it: `lib/setup.mjs` only checks that the credentials file exists, so "signed in" in the menu means "has a login file".
+
+## lib/tasks.mjs:retry (orphan)
+
+Retry used to restart an interrupted task whose old agent process was still alive, which is the case `resumeInterrupted` refuses. It now answers `{ orphanAlive }` the same way unless forced, and drops `orphanPid` when it does restart.
+
+## lib/director.mjs:snapshot (thread)
+
+Each goal carries `thread`: the conversation in order. The person's side is the goal text and every steering note; the director's side is one entry per director task, its final report (first 6000 characters) when it finished, its failure note when it failed, an empty "working" entry while it runs. A goal is one chat: while the director is still working a new message becomes a helper task under it (a running director cannot be messaged), and once the director has finished it starts a new director task on the same goal (`lib/routes/director.mjs` steer route). The chat picker lists goals; "New chat" starts a new goal.
+
+## viewer/public/director.js:chat
+
+The Director tab is a conversation: bubbles from `thread`, a task strip under the latest director bubble, a composer that sends on Enter, the director picker (provider, model, level) and the team menu (a checkbox, level select and sign-in state per model of each enabled provider). `keep` and `restore` keep typed text, focus and scroll across the 12 second redraw.
+
 ## Deferred
 
 Not built: a single writer for the Garden Engine board files, a positive review-bot requirement and head-commit pinning in the merge guard, a provider capability table, and remote task claim. They were set aside when the requirement became "pick a director model, tell it what you want". `docs/director/STAGES.md` records them as deferred.
+
+## lib/tasks.mjs:childCall (antigravity)
+
+Antigravity is run only as `agy -p <prompt> --model <slug> --output-format text`, started by the panel as a direct child process. Google's terms (https://antigravity.google/terms section 6, FAQ) bar third-party software from using the login and say wrapping `agy` in other apps is not supported on consumer plans, so the panel never touches the login, never rotates accounts, never uses a key, never passes `--dangerously-skip-permissions`, and runs one task at a time. It is off by default.
+
+## lib/tasks.mjs:OPT_IN
+
+Providers that automatic routing never picks (`candidates`): Claude, and Antigravity because of its terms. They run only when a task or the director's team names them.
+
+## usage/exec.mjs:binOf
+
+Maps a provider id to the program it runs: Antigravity's program is `agy`; `antigravity` alone would find the editor launcher, not the CLI.
+
+## lib/models.mjs:antigravity
+
+Reads `agy models`, which prints one `slug<TAB>name` per line after a "Fetching available models..." line. The reasoning level is part of the slug, so `EFFORTS` has no entry for Antigravity and the route refuses a level for it.
+
+## lib/tasks.mjs:AUTH_RE
+
+Matches only login-specific phrases (an OAuth session or token, an expired session, not logged in, log in again, unauthorized, authentication required, invalid credentials). The first version matched bare words such as "login" and "expired", which labelled ordinary failures as login problems.
+
+## lib/tasks.mjs:effortFor
+
+Uses a saved level only when it is in `EFFORTS` for the provider that actually runs; the director's own level counts only when the director's saved provider is that provider (it can fall back to another one when the saved one is not installed).
+
+## lib/routes/orch.mjs:/orch/config
+
+The older Orchestrator form does not send `team` or `effort`; the route keeps the saved values when those fields are absent, so that form cannot clear the person's choices.

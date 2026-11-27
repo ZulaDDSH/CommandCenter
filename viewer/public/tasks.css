@@ -42,5 +42,5 @@
 .tk-vt{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin:8px 0 3px}
 .tk-pre{max-height:240px;border:1px solid var(--line);border-radius:6px;background:#0d1017}
 @media(max-width:900px){.tk-grid{grid-template-columns:1fr}}
-.tk-badge.p-claude{color:var(--red);background:rgba(247,118,142,.12)}
+.tk-badge.p-antigravity{color:var(--accent);background:rgba(122,162,247,.12)}.tk-badge.p-claude{color:var(--red);background:rgba(247,118,142,.12)}
 .tk-title .tk-badge{color:var(--violet);background:rgba(187,154,247,.12);margin-right:4px}

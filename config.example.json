@@ -1,12 +1,14 @@
 {
   "setupDone": false,
-  "providers": { "freebuff": true, "codex": true, "cursor": true, "opencode": true, "claude": false },
+  "providers": { "freebuff": true, "codex": true, "cursor": true, "opencode": true, "claude": false, "antigravity": false },
   "projectDir": "",
   "runtimeDir": "",
   "maxClis": 3,
-  "maxParallel": { "codex": 2, "cursor": 1, "opencode": 2, "claude": 1 },
+  "maxParallel": { "codex": 2, "cursor": 1, "opencode": 2, "claude": 1, "antigravity": 1 },
   "stuckAfterMin": 90,
   "taskWorktrees": true,
   "mergeEnabled": false,
-  "models": { "codex": "gpt-6.1-terra", "codexEffort": "high", "cursor": "composer-2.5", "opencode": "opencode-go/deepseek-v4.1-flash", "claude": "sonnet" }
+  "reviewBotContext": "pr-review/ready-to-merge",
+  "team": [],
+  "models": { "codex": "gpt-6.1-terra", "codexEffort": "high", "cursor": "composer-2.5", "opencode": "opencode-go/deepseek-v4.1-flash", "claude": "sonnet", "antigravity": "gemini-3.8-flash-medium" }
 }

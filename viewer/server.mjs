@@ -337,7 +337,10 @@ http.createServer(async (req, res) => {
     const tm = /^\/tasks\/([\w-]+)\/(cancel|retry|done)$/.exec(u.pathname);
     if (tm && req.method === 'POST') {
       if (tm[2] === 'retry') {
-        const t = tasks.retry(tm[1]);
+        let force = false;
+        try { force = JSON.parse((await readBody(req, 2000)).trim() || '{}').force === true; } catch {}
+        const t = tasks.retry(tm[1], { force });
+        if (t?.orphanAlive) return send(res, 409, { error: `The agent process ${t.orphanAlive} from before the restart is still running and may still be editing the folder. End it first, or retry anyway with force.`, orphanPid: t.orphanAlive });
         if (t) tasks.tick();
         return t ? send(res, 200, t) : send(res, 400, { error: 'That task cannot do that now.' });
       }

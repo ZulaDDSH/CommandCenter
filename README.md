@@ -33,7 +33,7 @@ The Guide tab explains every part. Part 1 is for people. Part 2 is for AI agents
 
 ## Director (goals, machines, pull requests)
 
-Open the Director tab, pick your director (any provider, any model id), and write what you want done. The director splits the work, hands tasks to other models, checks their reports and reports back; the tab lists each task with its model and status, and you can pause, stop or tell the director something new. Folder, task limits, machines, pull requests and other sessions are under Advanced.
+Open the Director tab and talk to it like a chat. Pick your director (any provider, any model id, and its reasoning level), tick the models it may hand work to and set each one's reasoning level, then write what you want done. The director splits the work, hands tasks to the ticked models, checks their reports and answers in the chat; the tab lists each task with its model and status, and you can pause, stop or reply. Every provider signs in through its own login (the common API-key variables are removed from what agents run with); when a login has expired the tab shows a Log in button. Google's Antigravity CLI (`agy`) can be turned on in Setup as one more provider; it is off by default and the panel runs only `agy` itself, one task at a time, because Google's terms limit third-party use of that login. Read https://antigravity.google/terms first. Folder, task limits, machines, pull requests and other sessions are under Advanced.
 
 - A goal's waiting tasks are held by the dispatcher while the goal is paused or stopped, and by its own live-task and task-count limits.
 - A task left `interrupted` by a restart waits for you: Freebuff tasks continue the same chat on their own, everything else needs a click. Nothing restarts silently.
@@ -56,7 +56,7 @@ It parse-checks every module, copies the app to a temp folder, commits that copy
 | Path | What |
 |---|---|
 | `viewer/server.mjs` | The web panel and its API. |
-| `viewer/public/` | The page: `app.*` (Freebuff and provider tabs), `orch.*` (Orchestrator: goal box, board, budget, settings), `tasks.*` (Home and the Orchestrator task tree), `sessions.*` (session viewer), `pages.*` (Guide, Debug, Setup), and one file pair per extra tab. |
+| `viewer/public/` | The page: `app.*` (Freebuff and provider tabs), `director.*` (the Director tab: chat, models, task tree, board, budget, settings, machines, pull requests), `tasks.*` (Home and the task tree the Director tab embeds), `sessions.*` (session viewer), `pages.*` (Guide, Debug, Setup), and one file pair per extra tab. |
 | `lib/config.mjs` | Settings, saved in `config.json` by Setup. |
 | `lib/tasks.mjs` | The task queue and dispatcher (`tasks.json`, `tasks/`, `logs/`). |
 | `lib/sessions.mjs` | Reads Codex, OpenCode and Cursor session history for the session viewer. |

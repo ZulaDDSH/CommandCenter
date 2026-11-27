@@ -73,7 +73,7 @@ fetch('/setup').then(r=>r.json()).then(s=>{if(!s.config.setupDone&&!localStorage
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-auth],[data-refresh]');if(!b)return;
  if(b.dataset.auth){const [p,a]=b.dataset.auth.split(':');const r=await fetch('/auth?p='+p+'&a='+a,{method:'POST'});b.textContent=r.ok?'Opened a terminal window':'Failed';return}
  const p=b.dataset.refresh;b.textContent='Refreshing…';await fetch('/usage?p='+p+'&fresh=1');setTimeout(()=>{p==='freebuff'?hours():prov();routeInfo()},p==='freebuff'?6000:3000)});
-let tab='home';try{tab=localStorage.getItem('cc-tab')||'home'}catch(e){}if(tab==='tasks'||tab==='board')tab='orch';
+let tab='home';try{tab=localStorage.getItem('cc-tab')||'home'}catch(e){}if(tab==='tasks'||tab==='board'||tab==='orch')tab='director';
 const card=(title,big,sub,lines)=>'<div class="hours"><div class="hl">'+title+'</div><div class="big">'+big+(sub?' <small>'+sub+'</small>':'')+'</div><div class="hm">'+lines.filter(Boolean).join('<br>')+'</div></div>';
 const bar=pct=>'<div class="bar"><i style="width:'+Math.max(0,Math.min(100,pct))+'%"></i></div>';
 window.PAGES={};

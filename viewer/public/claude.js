@@ -7,7 +7,7 @@ PAGES.claude=async(el,fresh)=>{
   +card('Claude Code',s.installed?'installed':'not installed','',[s.installed?esc(s.path):'Install it from <a href="https://claude.com/product/claude-code" target="_blank" rel="noopener">claude.com/product/claude-code</a>, then run <code>claude</code> once to sign in.'])
   +card('Sign-in',s.signedIn?'signed in':'not signed in','',[s.signedIn?(s.plan?'Plan: '+esc(s.plan):'Plan not shown'):'Run <code>claude</code> in a terminal and log in.','Read from files on this PC, nothing was sent anywhere.'])
   +card('Usage','Claude site','',['Claude does not report usage to this panel. Open your usage page:','<a class="pill" target="_blank" rel="noopener" href="'+esc(s.usageUrl)+'">Open claude.ai usage</a>'])
-  +card('Used by this panel',s.enabled?'on':'off','',[s.enabled?'Tasks can be sent to Claude.':'Claude is turned on in Setup or the Orchestrator tab. Until then it only shows history here.'])
+  +card('Used by this panel',s.enabled?'on':'off','',[s.enabled?'Tasks can be sent to Claude.':'Claude is turned on in Setup or the Director tab. Until then it only shows history here.'])
   +'</div>';
  const list=Array.isArray(s.sessions)?s.sessions:[];
  const body=s.error?'<div class="empty">Could not read sessions: '+esc(s.error)+'</div>':!list.length?'<div class="empty">'+(s.enabled?'No Claude sessions found.':'No Claude sessions found, and Claude is off in Setup.')+'</div>':window.sessTable('claude',list);

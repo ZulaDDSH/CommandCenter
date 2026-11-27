@@ -1,6 +1,6 @@
 # Claude tab (AI guide)
 
-The "Claude" tab shows Claude Code on this PC: whether it is installed, whether it is signed in, a link to the usage page, and its past and current sessions. It does not start Claude. Claude is turned on for tasks in Setup or the Orchestrator tab.
+The "Claude" tab shows Claude Code on this PC: whether it is installed, whether it is signed in, a link to the usage page, and its past and current sessions. It does not start Claude. Claude is turned on for tasks in Setup or the Director tab.
 
 ## Endpoints
 

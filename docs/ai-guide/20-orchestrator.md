@@ -1,6 +1,6 @@
 # Orchestrator and sub-agents
 
-Two modes, set in the Orchestrator tab (`orchestrator.mode` in config).
+Two modes, set in the Director tab (`orchestrator.mode` in config).
 
 - **Simple.** A new task is routed to one provider by the panel (today's smart routing).
 - **Orchestrated.** A new task first goes to an orchestrator on the picked provider and model. It plans, adds sub-tasks, waits for them, checks the reports, may add fix tasks, and writes one final report. A task that names a provider, sets `direct`, or has a `parent` skips the orchestrator.

@@ -1,7 +1,7 @@
 (() => {
 const PROV = ['freebuff', 'codex', 'cursor', 'opencode'];
-const TOOLS = [...PROV, 'claude'];
-const NAMES = { freebuff: 'Freebuff', codex: 'Codex', cursor: 'Cursor', opencode: 'OpenCode', claude: 'Claude' };
+const TOOLS = [...PROV, 'claude', 'antigravity'];
+const NAMES = { freebuff: 'Freebuff', codex: 'Codex', cursor: 'Cursor', opencode: 'OpenCode', claude: 'Claude', antigravity: 'Antigravity' };
 const FB = 'Freebuff (a new CLI starts)';
 const ic = ok => ok === true ? '<span class="pg-ic ok" title="OK">✓</span>' : ok === false ? '<span class="pg-ic bad" title="Needs attention">✗</span>' : '<span class="pg-ic na" title="Off or unknown">●</span>';
 const put = (el, html, force) => { if (el && (force || el._h !== html)) { el.innerHTML = html; el._h = html; } };
@@ -24,7 +24,7 @@ async function copyText(btn, text) {
 
 let S = null, F = { repos: [] }, M = null, mAt = 0, msgs = {}, setupBusy = false, picking = null, savedTimer = 0;
 
-const FALLBACK = { codex: ['gpt-6.1-terra', 'gpt-6-luna'], codexEffort: ['low', 'medium', 'high', 'xhigh'], cursor: ['composer-2.5', 'grok-4.7'], opencode: ['opencode-go/deepseek-v4.1-flash'], claude: ['sonnet', 'opus', 'haiku'] };
+const FALLBACK = { codex: ['gpt-6.1-terra', 'gpt-6-luna'], codexEffort: ['low', 'medium', 'high', 'xhigh'], cursor: ['composer-2.5', 'grok-4.7'], opencode: ['opencode-go/deepseek-v4.1-flash'], claude: ['sonnet', 'opus', 'haiku'], antigravity: ['gemini-3.8-flash-medium'] };
 function modelList(m, k) {
   const src = m && (m[k] ?? m.models?.[k] ?? m.providers?.[k]?.models ?? m.providers?.[k]);
   const got = Array.isArray(src) ? src.map(x => typeof x === 'string' ? x : x?.id ?? x?.name ?? x?.value).filter(x => typeof x === 'string' && /^[\w.:/@-]{1,80}$/.test(x)) : [];
@@ -80,8 +80,8 @@ function foldersCard() {
   const projOpts = [...(proj ? [] : [['', 'Pick a project…']]), ...F.repos.map(r => [r.path, `${r.name}   (${r.path})`])];
   const inside = proj ? `${slash(proj).replace(/\/+$/, '')}/.cc-reports` : '';
   const repOpts = [...(inside ? [[inside, 'Inside the project (.cc-reports)']] : []), [`${root}/reports`, 'In the Command Center folder (reports)']];
-  const par = ['codex', 'cursor', 'opencode', 'claude'].map(k => fld(`${NAMES[k]} tasks at once`, select(`maxParallel.${k}`, c.maxParallel[k], range(0, 4), 'int'), `How many ${NAMES[k]} tasks may run together. 0 means none.`)).join('');
-  const mods = [['codex', 'Codex model'], ['codexEffort', 'Codex effort'], ['cursor', 'Cursor model'], ['opencode', 'OpenCode model'], ['claude', 'Claude model']]
+  const par = ['codex', 'cursor', 'opencode', 'claude', 'antigravity'].map(k => fld(`${NAMES[k]} tasks at once`, select(`maxParallel.${k}`, c.maxParallel[k], range(0, k === 'antigravity' ? 1 : 4), 'int'), `How many ${NAMES[k]} tasks may run together. 0 means none.`)).join('');
+  const mods = [['codex', 'Codex model'], ['codexEffort', 'Codex effort'], ['cursor', 'Cursor model'], ['opencode', 'OpenCode model'], ['claude', 'Claude model'], ['antigravity', 'Antigravity model']]
     .map(([k, l]) => fld(l, select(`models.${k}`, c.models[k], modelList(M, k).map(x => [x, x])), k === 'codexEffort' ? 'How hard Codex thinks.' : `The model used for panel tasks.`)).join('');
   return `<div class="pg-card pg-wide"><div class="pg-ch"><b>Folders and limits</b></div>
 <div class="pg-grid">
@@ -90,7 +90,7 @@ ${fld('Reports folder', `${select('reportsDir', c.reportsDir, repOpts)} ${pickBt
 ${fld('Relay program folder', `<code class="pg-path">${esc(S.prereqs.runtime.detail)}</code> ${pickBtn('runtime')}${c.runtimeDir ? ' <button class="pill" data-reset="runtimeDir">Use the default</button>' : ''}`, c.runtimeDir ? 'A folder you chose. The default lives inside the Command Center folder.' : 'The default place, inside the Command Center folder.')}
 ${fld('Freebuff CLIs at most', select('maxClis', c.maxClis, range(1, 6), 'int'), 'The most Freebuff windows open at once, counting any you started yourself.')}
 ${par}
-${fld('Mark a task as stuck after', select('stuckAfterMin', c.stuckAfterMin, [30, 60, 90, 120, 180].map(n => [n, `${n} minutes`]), 'int'), 'A running task older than this gets a note on the Orchestrator tab. It is not stopped.')}
+${fld('Mark a task as stuck after', select('stuckAfterMin', c.stuckAfterMin, [30, 60, 90, 120, 180].map(n => [n, `${n} minutes`]), 'int'), 'A running task older than this gets a note on the Director tab. It is not stopped.')}
 ${mods}
 </div></div>`;
 }
@@ -335,7 +335,7 @@ function guideSections(s) {
 <p>It runs on this PC only and cannot be reached from other machines. Tools turned on right now: <b>${esc(list)}</b>. Change that in the Setup tab.</p>`],
     ['tabs', 'The tabs', `<ul class="pg-dl">
 <li><b>Home</b> an overview of all the tools.</li>
-<li><b>Orchestrator</b> the one place for work. Say what you want done; the AI orchestrator plans it, hands the parts to agents, approves their sub-tasks and checks their reports. You watch the task tree (stop or retry if needed), read the team board the agents write, and see the budget. Settings: simple or orchestrated mode, the orchestrator, and the model each tool uses.</li>
+<li><b>Director</b> the one place for work, a chat with your director. Pick the director model, tick the models it may use and how hard each thinks, then say what you want done. It plans the work, hands the parts to agents, approves their sub-tasks, checks their reports and tells you what happened. Everything reports to it. Below the chat: what it handed out, what needs you, the task tree (stop or retry), the team board the agents write, the budget, and the model each tool uses by default.</li>
 <li><b>Freebuff</b> live Freebuff sessions, hours left today, the model picker and what the next task will do.</li>
 <li><b>Codex, Cursor, OpenCode</b> usage for that tool, its sessions, and Log in, Log out and Refresh buttons.</li>
 <li><b>Claude</b> whether Claude Code is installed and signed in, a link to its usage page, and its sessions. It does not start Claude.</li>
@@ -364,8 +364,8 @@ function guideSections(s) {
 <li><b>Codex</b>: ${esc(mp.codex)} at once. <b>Cursor</b>: ${esc(mp.cursor)} at once. <b>OpenCode</b>: ${esc(mp.opencode)} at once.</li></ul>
 <p>With <b>Automatic</b>, the panel tries the tools in this usual order: Freebuff (while it has DeepSeek hours), then Codex (while it is under its limit), then Cursor (if signed in), then OpenCode. If you choose a tool by hand, only that tool is tried. The top-right line shows the live order.</p>
 ${on.length ? `<div class="pg-ex"><b>Example: you add 5 coding tasks at once</b><ol>${five.map((x, i) => `<li>Task ${i + 1} ${x ? 'starts on <b>' + esc(x) + '</b>.' + note(x, i) : 'waits.'}</li>`).join('')}</ol>
-<p>${waiting ? `If you add 3 more straight away, ${waiting} of them wait, because every tool is at its limit. ` : ''}A waiting task shows its reason on the Orchestrator tab, for example "codex: ${esc(mp.codex)} of ${esc(mp.codex)} allowed tasks are running." Every 5 seconds it tries again. As soon as a slot frees up, or a Freebuff CLI becomes idle or finishes starting, the next waiting task starts. An idle Freebuff CLI is reused with a fresh chat.</p>
-<p class="pg-hint">This assumes each tool is signed in, has room, and Freebuff has hours. The Orchestrator tab always shows the real reason.</p></div>` : '<p class="pg-hint">No tool is turned on yet. Open Setup and turn one on.</p>'}`],
+<p>${waiting ? `If you add 3 more straight away, ${waiting} of them wait, because every tool is at its limit. ` : ''}A waiting task shows its reason on the Director tab, for example "codex: ${esc(mp.codex)} of ${esc(mp.codex)} allowed tasks are running." Every 5 seconds it tries again. As soon as a slot frees up, or a Freebuff CLI becomes idle or finishes starting, the next waiting task starts. An idle Freebuff CLI is reused with a fresh chat.</p>
+<p class="pg-hint">This assumes each tool is signed in, has room, and Freebuff has hours. The Director tab always shows the real reason.</p></div>` : '<p class="pg-hint">No tool is turned on yet. Open Setup and turn one on.</p>'}`],
     ['kinds', 'Task kinds', `<p>Every task has a kind. For Freebuff it picks the model.</p>
 <ul><li><b>Coding</b> (<code>[code]</code>, the default): the model chosen on the Freebuff tab, usually DeepSeek. It costs hours. When less than 2 hours of it are left, Beam codes instead.</li>
 <li><b>Small coding</b> (<code>[light]</code>): Beam. Free. Good for small, clear changes.</li>
@@ -374,7 +374,7 @@ ${on.length ? `<div class="pg-ex"><b>Example: you add 5 coding tasks at once</b>
     ['hours', 'Freebuff hours', `<p>Freebuff gives you a number of hours each day. They reset at the time shown in the Freebuff tab.</p>
 <ul><li>DeepSeek costs hours, usually 2 hours of your balance for each hour of work.</li><li>Beam and Solar Pro are free.</li>
 <li>An open CLI holds its hours until its time runs out, even while idle. That is why the panel counts running CLIs before it starts another.</li></ul>`],
-    ['board', 'The team board', `<p>A shared notepad for every agent. Before a task starts, each agent is told to read it. While it works it posts what others need: a file map, a finding, a blocker, a line when done. You can read it on the Orchestrator tab. Only the agents write to it.</p>
+    ['board', 'The team board', `<p>A shared notepad for every agent. Before a task starts, each agent is told to read it. While it works it posts what others need: a file map, a finding, a blocker, a line when done. You can read it on the Director tab. Only the agents write to it.</p>
 <p>Agents read it with <code>curl.exe -s http://127.0.0.1:4021/board</code>. Notes are kept in <code>${dir(root)}/board.jsonl</code>. Keep notes short and never post secrets.</p>`],
     ['relay', 'The relay and its patches', `<p>The relay (agent-interop-runtime) is a small program that lets the panel, and Claude, start and talk to Freebuff, Codex and Cursor. It is installed in <code>${dir(s.prereqs?.runtime?.detail ?? root + '/runtime')}</code>.</p>
 <p>Two files in <code>${dir(root)}/relay/</code> are patched copies of its own files:</p>
@@ -387,7 +387,7 @@ ${on.length ? `<div class="pg-ex"><b>Example: you add 5 coding tasks at once</b>
 <li><b>Usage unreadable</b>: press Refresh usage on that tab. This does not mean the tool ran out, only that the panel could not read it.</li>
 <li><b>Dispatcher stopped</b>: the queue is not moving. Restart the panel with the Command Center shortcut or <code>start.ps1</code>.</li>
 <li><b>Patch not applied</b>: press Apply patches in the Relay card, then restart the relay MCP server.</li>
-<li><b>A task waits for no clear reason</b>: read its reason on the Orchestrator tab. Usually a limit is full or hours are low.</li></ul>`],
+<li><b>A task waits for no clear reason</b>: read its reason on the Director tab. Usually a limit is full or hours are low.</li></ul>`],
     ['move', 'Moving to a new PC', `<p>Do not copy this folder to the new PC. It holds your settings, task history, logs and folder paths for this PC. Use the installer instead.</p>
 <ol><li>On this PC, run <code>pack.ps1</code> in the Command Center folder. It writes <code>CommandCenter-&lt;date&gt;.zip</code> and lists what it left out on purpose: your settings, tasks, logs, reports, board, relay runtime and backups.</li>
 <li>Copy the zip to the new PC and unzip it anywhere.</li>
