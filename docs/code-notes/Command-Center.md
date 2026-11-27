@@ -738,3 +738,7 @@ The limits check is a pure unit run on a throwaway `CC_ROOT`. Its sections cover
 `usage/providers.mjs:opencode` accepts `CC_OPENCODE_USAGE_KEY` ahead of the task credential, allowing a read-only key to be used for the usage display without replacing the key OpenCode uses to execute tasks. Entries containing whitespace are rejected before a request is made.
 
 `usage/providers.mjs:usageKeyFromRegistry` reads the current Windows user's usage-only setting when the server did not inherit it. This lets a running server pick up a key saved after it started without exposing the value to the browser or task processes.
+
+## viewer/public/sessions.js:renderSessions and sessTable
+
+The session filter chooses archived visibility before pagination. The table renders that same page without filtering archived rows a second time, so the Done filter and its page count include the same sessions.
