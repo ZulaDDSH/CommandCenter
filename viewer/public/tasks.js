@@ -100,7 +100,7 @@ function tree(list){
 
 function group(title,list,empty){
  list=tree(list);
- return '<div class="tk-h">'+title+' ('+list.length+')</div>'+(list.length?'<table class="ss tk-table"><thead><tr><th></th><th>Task</th><th>Kind</th><th>Provider</th><th>Folder</th><th>Times</th><th>Note</th><th></th></tr></thead><tbody>'+list.map(row).join('')+'</tbody></table>':'<div class="tk-empty">'+empty+'</div>')}
+ return '<div class="tk-h">'+title+' ('+list.length+')</div>'+(list.length?'<div class="tk-table-wrap" tabindex="0" role="region" aria-label="'+title+' tasks"><table class="ss tk-table"><thead><tr><th></th><th>Task</th><th>Kind</th><th>Provider</th><th>Folder</th><th>Times</th><th>Note</th><th></th></tr></thead><tbody>'+list.map(row).join('')+'</tbody></table></div>':'<div class="tk-empty">'+empty+'</div>')}
 
 function paint(){
  const root=$('tk-root');if(!root||tab!=='director')return;
@@ -111,8 +111,11 @@ function paint(){
  const run=tasks.filter(isRun).sort((a,b)=>ts(a.startedAt)-ts(b.startedAt)),wait=tasks.filter(x=>x.status==='waiting');
  const fin=tasks.filter(x=>['done','failed','cancelled','interrupted'].includes(x.status)).sort((a,b)=>(ts(b.endedAt)||ts(b.createdAt))-(ts(a.endedAt)||ts(a.createdAt))).slice(0,30);
  const saved={};for(const p of list.querySelectorAll('pre[data-k]'))saved[p.dataset.k]=[p.scrollTop,p.scrollHeight-p.scrollTop-p.clientHeight<30];
+ const scroll=Object.fromEntries(Array.from(list.querySelectorAll('.tk-table-wrap'),p=>[p.getAttribute('aria-label'),p.scrollLeft]));
+ const focused=document.activeElement?.classList.contains('tk-table-wrap')?document.activeElement.getAttribute('aria-label'):null;
  const el=$('prov'),st=el.scrollTop;
  list.innerHTML=group('Running',run,'No task is running.')+group('Waiting in line',wait,'Nothing is waiting.')+group('Finished (newest first)',fin,'No finished tasks yet.');
+ list.querySelectorAll('.tk-table-wrap').forEach(p=>{const label=p.getAttribute('aria-label');p.scrollLeft=scroll[label]||0;if(label===focused)p.focus({preventScroll:true})});
  for(const p of list.querySelectorAll('pre[data-k]')){const o=saved[p.dataset.k];p.scrollTop=!o||o[1]?p.scrollHeight:o[0]}
  el.scrollTop=st}
 

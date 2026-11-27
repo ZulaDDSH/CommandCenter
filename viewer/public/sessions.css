@@ -29,5 +29,6 @@
  #view{align-items:flex-end}
  .vbox{width:100vw;height:94vh;border-radius:var(--r3) var(--r3) 0 0}
  .vh{padding:10px 12px;gap:8px}
+ .vh{flex-wrap:wrap}.vh>div{flex-basis:100%}.vact{flex-wrap:wrap}
  #vfeed{padding:12px 12px 40px}
 }

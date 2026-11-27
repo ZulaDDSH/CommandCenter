@@ -51,7 +51,7 @@ const AGENT={freebuff:'Freebuff',codex:'Codex',cursor:'Cursor',opencode:'OpenCod
 window.sessTable=list=>{
  const arch=list.filter(s=>s.id&&s.archived),rows=list.filter(s=>s.id&&(!s.archived||showArch)).sort((a,b)=>(RANK[a.live]??2)-(RANK[b.live]??2)||b.mtime-a.mtime);
  return list.filter(s=>!s.id).map(s=>'<div class="'+(s.note?'pg-hint':'tk-warn')+'">'+esc(s.title)+'</div>').join('')
-  +'<table class="ss"><thead><tr><th>Agent</th><th>Doing</th><th>Folder</th><th>Last activity</th><th>State</th><th></th></tr></thead><tbody>'
+  +'<table class="ss" aria-label="Sessions"><thead><tr><th>Agent</th><th>Doing</th><th>Folder</th><th>Last activity</th><th>State</th><th></th></tr></thead><tbody>'
   +rows.map(s=>'<tr tabindex="0" class="srow'+(s.archived?' arch':'')+'" data-p="'+esc(s.provider)+'" data-id="'+esc(s.id)+'"><td><span class="tk-badge p-'+esc(s.provider)+'">'+esc(AGENT[s.provider]||s.provider)+'</span></td><td class="st">'+esc(s.title||s.id)+(s.model?'<div class="m">'+esc(s.model)+'</div>':'')+'</td><td title="'+esc(s.cwd)+'">'+esc(last2(s.cwd))+'</td><td>'+esc(recent(s.mtime))+'</td><td class="sst">'+dot(s.live,s.liveWhy)+'</td><td class="sact"><button class="pill" data-a="rename">Rename</button><button class="pill" data-a="'+(s.archived?'unarchive':'archive')+'">'+(s.archived?'Unarchive':'Archive')+'</button><button class="pill" data-a="delete">Delete</button></td></tr>').join('')+'</tbody></table>'
   +(arch.length?'<div class="sarch"><button class="pill" data-tog="1">'+(showArch?'Hide ':'Show ')+arch.length+' archived</button></div>':'')};
 window.sessClick=(e,list,reload)=>{

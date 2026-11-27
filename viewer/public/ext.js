@@ -4,7 +4,7 @@ const closed=new Set();let data=null,q='',busy=false;
 
 function rowHtml(r){
  const dis=r.ro||r.locked||busy;
- return '<div class="xrow'+(r.on?'':' off')+'"><label class="sw" title="'+esc(r.ro?(r.note||'Cannot be switched here'):r.locked||(r.on?'Turn off':'Turn on'))+'"><input type="checkbox" data-id="'+esc(r.id)+'" data-rev="'+esc(r.rev)+'"'+(r.on?' checked':'')+(dis?' disabled':'')+'><span></span></label>'
+ return '<div class="xrow'+(r.on?'':' off')+'"><label class="sw" title="'+esc(r.ro?(r.note||'Cannot be switched here'):r.locked||(r.on?'Turn off':'Turn on'))+'"><input type="checkbox" aria-label="'+esc(r.name+' ('+r.app+')')+'" data-id="'+esc(r.id)+'" data-rev="'+esc(r.rev)+'"'+(r.on?' checked':'')+(dis?' disabled':'')+'><span></span></label>'
   +'<div class="xmain"><div class="xname">'+esc(r.name)+'<span class="xapp">'+esc(r.app)+'</span></div><div class="xwhat">'+esc(r.what)+'</div><div class="xsrc" title="'+esc(r.path)+'">From '+esc(r.source)+(r.stashed?' (saved copy, put back when you turn it on)':'')+'</div>'
   +(r.ro&&r.note?'<div class="xnote">'+esc(r.note)+'</div>':'')+(r.locked?'<div class="xnote">'+esc(r.locked)+'</div>':'')+(!r.ro&&!r.locked&&r.note?'<div class="xnote">'+esc(r.note)+'</div>':'')+'</div></div>'}
 
@@ -38,7 +38,7 @@ async function flip(el,box){
 PAGES.ext=el=>{
  if(!el.querySelector('.ext')){
   q='';el.innerHTML='<div class="ext"><h2>Hooks &amp; MCP</h2><div class="xhint">Everything that runs on this PC for your AI tools. Use the switches to turn things on or off. Each change keeps a backup copy of the file it touches. Restart the tool (CLI) for a change to apply.</div>'
-   +'<div class="xbar"><input id="xq" type="search" placeholder="Search by name, what it does, or file" autocomplete="off"></div><div class="xmsg top" hidden></div><div class="xbody"><div class="empty">Reading…</div></div></div>';
+   +'<div class="xbar"><input id="xq" type="search" aria-label="Search hooks and extensions" placeholder="Search by name, what it does, or file" autocomplete="off"></div><div class="xmsg top" hidden></div><div class="xbody"><div class="empty">Reading…</div></div></div>';
   const inp=el.querySelector('#xq');inp.oninput=()=>{q=inp.value;paint(el)};
   el.querySelector('.xbody').addEventListener('change',e=>{if(e.target.matches('.sw input'))flip(el,e.target)});
   el.querySelector('.xbody').addEventListener('toggle',e=>{const k=e.target.dataset?.k;if(k)e.target.open?closed.delete(k):closed.add(k)},true)}

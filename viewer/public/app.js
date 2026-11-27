@@ -80,8 +80,9 @@ window.PAGES={};
 function prov(){if(tab!=='freebuff')PAGES[tab]?.($('prov'))}
 function setTab(t){tab=t;try{localStorage.setItem('cc-tab',t)}catch(e){}
  document.body.classList.toggle('other',t!=='freebuff');
-  if(data.length){const v=shown();if(v.length&&!v.some(x=>x.slug===sel)){sel=v[0].slug;feed()}list();header()}document.querySelectorAll('#tabs a').forEach(a=>a.classList.toggle('on',a.dataset.t===(t==='freebuff'?'sessions':t)));prov()}
+  if(data.length){const v=shown();if(v.length&&!v.some(x=>x.slug===sel)){sel=v[0].slug;feed()}list();header()}document.querySelectorAll('#tabs a').forEach(a=>{const active=a.dataset.t===(t==='freebuff'?'sessions':t);a.classList.toggle('on',active);if(active)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});prov()}
 $('tabs').onclick=e=>{const a=e.target.closest('[data-t]');if(a)setTab(a.dataset.t)};
+$('tabs').onkeydown=e=>{const a=e.target.closest('[data-t]');if(a&&(e.key==='Enter'||e.key===' ')){e.preventDefault();setTab(a.dataset.t)}};
 async function routeInfo(){try{const r=await (await fetch('/usage?p=route')).json();if(r.loading)return setTimeout(routeInfo,3000);
  $('route').innerHTML=r.error?'route: '+esc(r.error):'Next task goes to <b>'+esc(r.provider)+'</b> · '+esc(r.model)+(r.effort?' ('+r.effort+')':'')+(r.variant?' ('+r.variant+')':'')+' <span title="'+esc(r.why)+'">ⓘ</span>'}catch(e){}}
 addEventListener("DOMContentLoaded",()=>setTab(tab));routeInfo();setInterval(routeInfo,300000);setInterval(prov,60000);

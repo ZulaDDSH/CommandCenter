@@ -42,7 +42,7 @@
 .pg-top h2{margin:0}
 .pg-saved{flex:1;font-size:13px;min-height:18px}
 .pg-saved.ok{color:var(--green)}.pg-saved.bad{color:var(--red)}
-.pg-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.pg-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:14px}
 .pg-card{background:var(--panel);border-radius:var(--r2);padding:14px 16px;margin:0 0 14px}
 .pg-cards .pg-card{margin:0;display:flex;flex-direction:column;gap:6px}
 .pg-card.off{opacity:.62}
@@ -51,7 +51,7 @@
 .pg-links{display:flex;gap:14px;margin-top:auto;font-size:13px}
 .pg-go{background:var(--paper);border-color:var(--paper);color:var(--ink);font-weight:600;padding:6px 18px}.pg-go:hover{background:var(--paper-hi)}
 .pg-done{background:transparent;color:var(--green);border-color:var(--green);opacity:.85;cursor:default}.pg-done:hover{background:transparent}
-.pg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:4px 24px}
+.pg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(380px,100%),1fr));gap:4px 24px}
 .pg-grid .pg-item{border-top:0}
 .pg-fld{padding:8px 0}
 .pg-l{font-weight:600;font-size:13px;margin-bottom:4px}
