@@ -5,8 +5,10 @@ import ctypes
 import copy
 import hashlib
 import json
+import ntpath
 import os
 import re
+import shutil
 import stat
 import sys
 import tempfile
@@ -213,13 +215,30 @@ def update_json(data, ids, adapter, python):
 
 
 CLAUDE_STASH_NAMES = ("gimp", "reevesagents")
-NATIVE_ENV_NAMES = ("f4-re-mcp", "rea")
+BARE_EXECUTABLES = {"blender": "uvx", "agent-interop-runtime": "node", "pr-review": "powershell.exe"}
+NATIVE_ENV_NAMES = ("f4-re-mcp", "rea", "ncwe", *BARE_EXECUTABLES)
 
 
-def check_native_env(cfg):
+def ncwe_executable(command):
+    drive, tail = ntpath.splitdrive(command)
+    if not re.fullmatch(r"[a-zA-Z]:", drive) or not tail.startswith(("/", chr(92))) or ntpath.splitext(tail)[1].lower() != ".exe":
+        raise ValueError("NCWE must use a drive-qualified absolute Windows executable.")
+    return ntpath.normcase(ntpath.normpath(command))
+
+
+
+def matching_launch(name, first, second):
+    if name == "ncwe":
+        return first["args"] == second["args"] and ncwe_executable(first["command"]) == ncwe_executable(second["command"])
+    return first == second
+
+
+def check_native_env(cfg, name):
     env = cfg.get("env", {})
     if not isinstance(env, dict) or not all(isinstance(k, str) and k and "=" not in k and isinstance(v, str) for k, v in env.items()):
         raise ValueError("Expected a client-owned string environment map.")
+    if name in BARE_EXECUTABLES and any(key.upper() in {"PATH", "PATHEXT"} for key in env):
+        raise ValueError(f"Custom executable search settings are unsupported for {name}.")
 
 
 def original_launch(name, launch, servers, adapter, python):
@@ -242,7 +261,7 @@ def global_stash_entry(row, claude):
 
 
 
-def update_stash(data, claude, commands, adapter, python, servers, names):
+def update_stash(data, claude, commands, adapter, python, servers, names, codex_servers):
     text = data.decode("utf-8-sig")
     stash = strict_json(text)
     if not isinstance(stash, dict) or type(stash.get("version")) is not int or stash["version"] != 1 or not isinstance(stash.get("entries"), list):
@@ -261,9 +280,12 @@ def update_stash(data, claude, commands, adapter, python, servers, names):
             raise ValueError(f"Unsupported Claude stash entry for {name}.")
         if set(cfg) - {"type", "command", "args", "env"} or (name not in NATIVE_ENV_NAMES and cfg.get("env", {}) != {}):
             raise ValueError(f"Unsupported Claude launch settings for {name}.")
-        check_native_env(cfg)
+        check_native_env(cfg, name)
         launch = safe_command(cfg.get("command"), cfg.get("args"))
-        if original_launch(name, launch, servers, adapter, python) != commands[name]:
+        actual = original_launch(name, launch, servers, adapter, python)
+        if name == "ncwe" and cfg.get("env", {}) != codex_servers[name].get("env", {}):
+            raise ValueError("Claude and Codex environments differ for ncwe.")
+        if not matching_launch(name, actual, commands[name]):
             raise ValueError(f"Claude and Codex launches differ for {name}.")
         fields = spans[index][2]["cfg"][2]
         for key, value in (("command", python), ("args", [str(adapter), name])):
@@ -332,11 +354,11 @@ def update_toml(data, ids, adapter, python):
         if not isinstance(cfg, dict) or cfg.get("enabled") is not False:
             raise ValueError(f"Codex {name} must be explicitly disabled.")
         if name in NATIVE_ENV_NAMES:
-            check_native_env(cfg)
+            check_native_env(cfg, name)
             safe_fields({k: v for k, v in cfg.items() if k != "env"})
         else:
             safe_fields(cfg)
-        commands[name] = safe_command(cfg.get("command"), cfg.get("args"))
+        commands[name] = safe_command(cfg.get("command"), cfg.get("args", [] if name == "ncwe" else None))
         if commands[name] == {"command": python, "args": [str(adapter), name]}:
             continue
         start = locations[name]
@@ -361,6 +383,11 @@ def update_toml(data, ids, adapter, python):
             if "\n" in raw or "\r" in raw:
                 raise ValueError(f"Codex {name} {key} value is multiline.")
             lines[i] = m.group(1) + key + m.group(3) + value + comment + (m.group(5) or "")
+        if name == "ncwe" and "args" not in cfg and seen == {"command"}:
+            eol = "\r\n" if "\r\n" in text else "\n"
+            header = lines[start]
+            lines[start] = header + ("" if header.endswith("\n") else eol) + "args = " + json.dumps([str(adapter), name], ensure_ascii=False) + eol
+            seen.add("args")
         if seen != {"command", "args"}:
             raise ValueError(f"Codex {name} must have one direct command and args assignment.")
         parsed = tomllib.loads("".join(lines))
@@ -854,14 +881,20 @@ def migrate(paths):
     servers = registry["servers"]
     originals = {name: original_launch(name, entry, servers, paths["adapter"], sys.executable)
                  for name, entry in codex_entries.items()}
+    for name, command in BARE_EXECUTABLES.items():
+        if name in originals:
+            resolved = shutil.which(command)
+            if originals[name]["command"].lower() != command or not resolved or not ntpath.isabs(resolved) or ntpath.splitext(resolved)[1].lower() != ".exe":
+                raise ValueError(f"Cannot verify the expected native Windows executable for {name}.")
     if any(originals[name] != original_launch(name, open_entries[name], servers, paths["adapter"], sys.executable) for name in NAME_IDS):
         raise ValueError("Codex and OpenCode registrations are not semantically identical.")
     for name, entry in originals.items():
-        if name in servers and servers[name] != entry:
+        if name in servers and not matching_launch(name, servers[name], entry):
             raise ValueError(f"Existing registry entry {name} conflicts with the client config.")
     registry_new = registry_original
-    if any(name not in servers for name in originals):
-        registry["servers"] = {**servers, **originals}
+    additions = {name: entry for name, entry in originals.items() if name not in servers}
+    if additions:
+        registry["servers"] = {**servers, **additions}
         registry_new = (json.dumps(registry, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     adapter_original = read(paths["adapter"])
     adapter_new = paths["source_adapter"].read_bytes()
@@ -873,7 +906,7 @@ def migrate(paths):
     }
     if stash_original is not None:
         validate_config_acl(paths["stash"], allow_inherited_read=True, stash=True)
-        stash_new = update_stash(stash_original, paths["claude"], originals, paths["adapter"], sys.executable, servers, stash_names)
+        stash_new = update_stash(stash_original, paths["claude"], originals, paths["adapter"], sys.executable, servers, stash_names, codex_servers)
         participants["stash"] = (stash_original, stash_new)
         requires_txf = True
     if all(old == new for old, new in participants.values()):

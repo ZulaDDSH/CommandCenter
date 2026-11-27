@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -236,6 +237,80 @@ class SharedMcpMigrateTests(unittest.TestCase):
         originals["stash"] = stash_bytes
         return paths, originals, copy.deepcopy(stash_data), claude_bytes
 
+    def make_ncwe_paths(self, root, stash_command=r"c:\program files\ncwe\ncwe.exe"):
+        paths, originals, stash_data, claude_bytes = self.make_stash_paths(root)
+        codex_command = r"C:\Program Files\NCWE\NCWE.EXE"
+        codex_text = originals["codex"].decode() + (
+            "\n[mcp_servers.ncwe]\n"
+            "enabled = false\n"
+            f"command = {json.dumps(codex_command)}\n"
+        )
+        originals["codex"] = codex_text.encode()
+        paths["codex"].write_bytes(originals["codex"])
+        MIGRATE.secure_private_file(paths["codex"])
+        stash_data["entries"].append(
+            {
+                "id": "stash-ncwe-07",
+                "idx": len(stash_data["entries"]) + 2,
+                "kind": "mcp",
+                "app": "Claude Code",
+                "file": str(paths["claude"]),
+                "scope": ["mcpServers"],
+                "name": "ncwe",
+                "cfg": {"type": "stdio", "command": stash_command, "args": [], "env": {}},
+                "metadata": {"preserve": "ncwe"},
+            }
+        )
+        stash_bytes = b"\xef\xbb\xbf" + json.dumps(stash_data, indent=2).encode("utf-8")
+        paths["stash"].write_bytes(stash_bytes)
+        originals["stash"] = stash_bytes
+        return paths, originals, copy.deepcopy(stash_data), claude_bytes, codex_command
+
+    def make_bare_executable_paths(self, root, override=None):
+        paths, originals, stash_data, claude_bytes = self.make_stash_paths(root)
+        executable_dir = root / "bare-executables"
+        executable_dir.mkdir()
+        names = {"blender": "uvx", "agent-interop-runtime": "node", "pr-review": "powershell.exe"}
+        codex_text = originals["codex"].decode()
+        env_maps = {}
+        for name, command in names.items():
+            env = {f"{name.upper().replace('-', '_')}_TOKEN": f"{name}-client-secret"}
+            if override and override[0] == name:
+                env[override[1]] = "custom-search-setting"
+            env_maps[name] = env
+            args = ["--stdio", name]
+            env_table = "{ " + ", ".join(f"{json.dumps(key)} = {json.dumps(value)}" for key, value in env.items()) + " }"
+            codex_text += (
+                f"\n[mcp_servers.{name}]\n"
+                "enabled = false\n"
+                f"command = {json.dumps(command)}\n"
+                f"args = {json.dumps(args)}\n"
+                f"env = {env_table}\n"
+            )
+            stash_data["entries"].append(
+                {
+                    "id": f"stash-{name}",
+                    "idx": len(stash_data["entries"]) + 2,
+                    "kind": "mcp",
+                    "app": "Claude Code",
+                    "file": str(paths["claude"]),
+                    "scope": ["mcpServers"],
+                    "name": name,
+                    "cfg": {"type": "stdio", "command": command, "args": args, "env": copy.deepcopy(env)},
+                    "metadata": {"preserve": name},
+                }
+            )
+        originals["codex"] = codex_text.encode()
+        originals["bare_env"] = env_maps
+        paths["codex"].write_bytes(originals["codex"])
+        MIGRATE.secure_private_file(paths["codex"])
+        stash_bytes = b"\xef\xbb\xbf" + json.dumps(stash_data, indent=2).encode("utf-8")
+        paths["stash"].write_bytes(stash_bytes)
+        originals["stash"] = stash_bytes
+        for command in names.values():
+            shutil.copy2(sys.executable, executable_dir / (command if command.lower().endswith(".exe") else command + ".exe"))
+        return paths, originals, copy.deepcopy(stash_data), claude_bytes, names, executable_dir
+
     def test_inherited_broad_read_uses_txf_encryption_and_rolls_back(self):
         with tempfile.TemporaryDirectory() as directory:
             paths, originals = self.make_paths(Path(directory), inherited_read=True)
@@ -398,6 +473,98 @@ class SharedMcpMigrateTests(unittest.TestCase):
             after = {key: paths[key].read_bytes() for key in participant_keys}
             self.assertEqual(after, before)
             self.assertFalse(paths["journal"].exists())
+
+    def test_ncwe_case_insensitive_executable_match_preserves_stash_and_rolls_back(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, originals, stash_before, claude_before, codex_command = self.make_ncwe_paths(Path(directory))
+            txid = self.run_migration(paths)
+            codex = MIGRATE.tomllib.loads(paths["codex"].read_text(encoding="utf-8"))
+            self.assertEqual(codex["mcp_servers"]["ncwe"]["command"], sys.executable)
+            self.assertEqual(codex["mcp_servers"]["ncwe"]["args"], [str(paths["adapter"]), "ncwe"])
+            stash_after = json.loads(paths["stash"].read_bytes().decode("utf-8-sig"))
+            expected_stash = copy.deepcopy(stash_before)
+            row = next(item for item in expected_stash["entries"] if item.get("name") == "ncwe")
+            row["cfg"]["command"] = sys.executable
+            row["cfg"]["args"] = [str(paths["adapter"]), "ncwe"]
+            self.assertEqual(stash_after, expected_stash)
+            registry = json.loads(paths["registry"].read_text(encoding="utf-8"))
+            self.assertEqual(registry["servers"]["ncwe"], {"command": codex_command, "args": []})
+            self.assertEqual(paths["claude"].read_bytes(), claude_before)
+            journal_before_repeat = paths["journal"].read_bytes()
+            self.assertIsNone(self.run_migration(paths))
+            self.assertEqual(paths["journal"].read_bytes(), journal_before_repeat)
+            self.assertIsNone(MIGRATE.recover(paths, txid))
+            self.assert_originals(paths, originals)
+            self.assertEqual(paths["stash"].read_bytes(), originals["stash"])
+            self.assertEqual(paths["claude"].read_bytes(), originals["claude"])
+            restored_codex = MIGRATE.tomllib.loads(paths["codex"].read_text(encoding="utf-8"))
+            self.assertNotIn("args", restored_codex["mcp_servers"]["ncwe"])
+
+    def test_ncwe_different_executable_path_fails_without_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, _, stash_data, _, _ = self.make_ncwe_paths(Path(directory), stash_command=r"C:\Program Files\NCWE\different.exe")
+            participant_keys = (*self.keys, "stash", "claude")
+            before = {key: paths[key].read_bytes() for key in participant_keys}
+            with self.assertRaises((ValueError, RuntimeError)):
+                self.run_migration(paths)
+            after = {key: paths[key].read_bytes() for key in participant_keys}
+            self.assertEqual(after, before)
+            self.assertFalse(paths["journal"].exists())
+
+    def test_bare_executable_migration_preserves_env_and_has_no_shell_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, originals, stash_before, claude_before, names, executable_dir = self.make_bare_executable_paths(Path(directory))
+            process_env = {"PATH": str(executable_dir), "PATHEXT": ".EXE"}
+            with mock.patch.dict(os.environ, process_env):
+                txid = self.run_migration(paths)
+                codex = MIGRATE.tomllib.loads(paths["codex"].read_text(encoding="utf-8"))
+                stash_after = json.loads(paths["stash"].read_bytes().decode("utf-8-sig"))
+                expected_stash = copy.deepcopy(stash_before)
+                registry = json.loads(paths["registry"].read_text(encoding="utf-8"))
+                for name in ("gimp", "reevesagents"):
+                    row = next(item for item in expected_stash["entries"] if item.get("name") == name)
+                    row["cfg"]["command"] = sys.executable
+                    row["cfg"]["args"] = [str(paths["adapter"]), name]
+                for name, original_command in names.items():
+                    entry = codex["mcp_servers"][name]
+                    self.assertEqual(entry["command"], sys.executable)
+                    self.assertEqual(entry["args"], [str(paths["adapter"]), name])
+                    self.assertEqual(entry["env"], originals["bare_env"][name])
+                    row = next(item for item in expected_stash["entries"] if item.get("name") == name)
+                    row["cfg"]["command"] = sys.executable
+                    row["cfg"]["args"] = [str(paths["adapter"]), name]
+                    self.assertEqual(row["cfg"]["env"], originals["bare_env"][name])
+                    self.assertEqual(registry["servers"][name], {"command": original_command, "args": ["--stdio", name]})
+                    self.assertNotIn("env", registry["servers"][name])
+                self.assertEqual(stash_after, expected_stash)
+                registry_bytes = paths["registry"].read_bytes()
+                for name in names:
+                    self.assertNotIn(f"{name}-client-secret".encode(), registry_bytes)
+                self.assertNotIn(b"cmd.exe", registry_bytes.lower())
+                self.assertNotIn(b"cmd /c", registry_bytes.lower())
+                self.assertEqual(paths["claude"].read_bytes(), claude_before)
+                journal_before_repeat = paths["journal"].read_bytes()
+                self.assertIsNone(self.run_migration(paths))
+                self.assertEqual(paths["journal"].read_bytes(), journal_before_repeat)
+                self.assertIsNone(MIGRATE.recover(paths, txid))
+                self.assert_originals(paths, originals)
+                self.assertEqual(paths["stash"].read_bytes(), originals["stash"])
+                self.assertEqual(paths["claude"].read_bytes(), originals["claude"])
+
+    def test_bare_executable_migration_rejects_path_and_pathext_overrides(self):
+        for name in ("blender", "agent-interop-runtime", "pr-review"):
+            for key in ("PATH", "PATHEXT"):
+                with self.subTest(name=name, key=key), tempfile.TemporaryDirectory() as directory:
+                    paths, _, _, _, _, executable_dir = self.make_bare_executable_paths(
+                        Path(directory), override=(name, key)
+                    )
+                    with mock.patch.dict(os.environ, {"PATH": str(executable_dir), "PATHEXT": ".EXE"}):
+                        before = {key_name: paths[key_name].read_bytes() for key_name in (*self.keys, "stash", "claude")}
+                        with self.assertRaisesRegex(ValueError, "Custom executable search settings"):
+                            self.run_migration(paths)
+                        after = {key_name: paths[key_name].read_bytes() for key_name in (*self.keys, "stash", "claude")}
+                        self.assertEqual(after, before)
+                        self.assertFalse(paths["journal"].exists())
 
     def test_txf_refuses_inherited_broad_write_access(self):
         with tempfile.TemporaryDirectory() as directory:

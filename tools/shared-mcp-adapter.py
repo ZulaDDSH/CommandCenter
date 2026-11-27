@@ -28,6 +28,47 @@ def load_server():
     return entry["command"], entry["args"]
 
 
+def windows_search_dirs(application_dir, cwd, env, system_dirs, windows_dir, include_cwd):
+    dirs = [application_dir]
+    if include_cwd:
+        dirs.append(cwd)
+    dirs.extend(system_dirs)
+    dirs.append(os.path.join(windows_dir, "System"))
+    dirs.append(windows_dir)
+    path_dirs = [part.strip().strip('"') for part in env.get("PATH", "").split(os.pathsep)]
+    dirs.extend(part or cwd for part in path_dirs if part or include_cwd)
+    return list(dict.fromkeys(os.path.normcase(os.path.abspath(item)) for item in dirs if item))
+
+
+def _first_bare_exe(command, directories):
+    if not command or any(sep in command for sep in ("/", "\\")) or command.lower().endswith((".cmd", ".bat")):
+        raise ValueError("Windows adapter requires a bare executable name; .cmd and .bat commands are unsupported.")
+    name = command if Path(command).suffix else command + ".exe"
+    if Path(name).suffix.lower() != ".exe":
+        raise ValueError("Windows adapter supports only .exe executable names.")
+    for directory in directories:
+        candidate = os.path.abspath(os.path.join(directory, name))
+        if os.path.isfile(candidate):
+            if not candidate.lower().endswith(".exe"):
+                raise ValueError("Resolved command is not an .exe file.")
+            return candidate
+    return None
+
+
+def resolve_bare_exe(command, client_search_dirs, adapter_search_dirs):
+    client = _first_bare_exe(command, client_search_dirs)
+    adapter = _first_bare_exe(command, adapter_search_dirs)
+    if client is None or adapter is None:
+        raise ValueError("Bare command did not resolve to an .exe under both client and adapter Windows search paths.")
+    try:
+        same = os.path.samefile(client, adapter)
+    except OSError:
+        same = os.path.normcase(os.path.realpath(client)) == os.path.normcase(os.path.realpath(adapter))
+    if not same:
+        raise ValueError("Bare command resolves to different executables for the client and adapter; refusing ambiguous launch.")
+    return client
+
+
 def windows_job():
     class BasicLimit(ctypes.Structure):
         _fields_ = [("PerProcessUserTimeLimit", ctypes.c_longlong), ("PerJobUserTimeLimit", ctypes.c_longlong), ("LimitFlags", ctypes.c_ulong), ("MinimumWorkingSetSize", ctypes.c_size_t), ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", ctypes.c_ulong), ("Affinity", ctypes.c_size_t), ("PriorityClass", ctypes.c_ulong), ("SchedulingClass", ctypes.c_ulong)]
@@ -95,6 +136,15 @@ def windows_parent(kernel):
     handle = query(0x00100000 | 0x001000, False, parent_pid)
     if not handle:
         raise OSError(ctypes.get_last_error(), "cannot open parent process")
+    image_size = wintypes.DWORD(32768)
+    image = ctypes.create_unicode_buffer(image_size.value)
+    image_query = kernel.QueryFullProcessImageNameW
+    image_query.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD))
+    image_query.restype = wintypes.BOOL
+    if not image_query(handle, 0, image, ctypes.byref(image_size)):
+        error = ctypes.get_last_error()
+        kernel.CloseHandle(handle)
+        raise ctypes.WinError(error)
     own_created, parent_created = FileTime(), FileTime()
     own_exit, own_kernel, own_user = FileTime(), FileTime(), FileTime()
     parent_exit, parent_kernel, parent_user = FileTime(), FileTime(), FileTime()
@@ -107,7 +157,45 @@ def windows_parent(kernel):
     if parent_stamp >= own_stamp or wait(handle, 0) != 0x102:
         kernel.CloseHandle(handle)
         raise OSError("parent process is not the adapter's live creator")
-    return handle, wait
+    return handle, wait, image.value
+
+
+def windows_search_paths(kernel, parent_image, parent_handle, command):
+    def get_directory(fn_name):
+        fn = getattr(kernel, fn_name)
+        fn.argtypes = (wintypes.LPWSTR, wintypes.UINT)
+        fn.restype = wintypes.UINT
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = fn(buffer, len(buffer))
+        if not length or length >= len(buffer):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return buffer.value
+
+    if os.path.basename(parent_image).lower() in ("cmd.exe", "powershell.exe", "pwsh.exe"):
+        raise RuntimeError("The adapter parent is a command shell, so the original MCP client executable search cannot be verified.")
+    machine_query = getattr(kernel, "IsWow64Process2", None)
+    if machine_query is None:
+        raise RuntimeError("Cannot verify that the MCP client and Python adapter use the same Windows executable search architecture.")
+    machine_query.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.USHORT), ctypes.POINTER(wintypes.USHORT))
+    machine_query.restype = wintypes.BOOL
+    parent_machine, parent_native = wintypes.USHORT(), wintypes.USHORT()
+    adapter_machine, adapter_native = wintypes.USHORT(), wintypes.USHORT()
+    if not machine_query(kernel.GetCurrentProcess(), ctypes.byref(adapter_machine), ctypes.byref(adapter_native)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    if not machine_query(parent_handle, ctypes.byref(parent_machine), ctypes.byref(parent_native)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    if (parent_machine.value or parent_native.value) != (adapter_machine.value or adapter_native.value):
+        raise RuntimeError("The MCP client and Python adapter use different Windows architectures; executable search cannot be verified.")
+    parent_dir = os.path.dirname(parent_image)
+    cwd = os.getcwd()
+    windows_dir = get_directory("GetWindowsDirectoryW")
+    system_dir = get_directory("GetSystemDirectoryW")
+    kernel.NeedCurrentDirectoryForExePathW.argtypes = (wintypes.LPCWSTR,)
+    kernel.NeedCurrentDirectoryForExePathW.restype = wintypes.BOOL
+    include_cwd = bool(kernel.NeedCurrentDirectoryForExePathW(command))
+    client_dirs = windows_search_dirs(parent_dir, cwd, os.environ, [system_dir], windows_dir, include_cwd)
+    adapter_dirs = windows_search_dirs(os.path.dirname(sys.executable), cwd, os.environ, [system_dir], windows_dir, include_cwd)
+    return client_dirs, adapter_dirs
 
 
 def main():
@@ -118,13 +206,21 @@ def main():
         fail("Windows .cmd/.bat commands are not supported")
     try:
         kernel, job, assign = windows_job()
-        parent, wait_parent = windows_parent(kernel)
+        parent, wait_parent, parent_image = windows_parent(kernel)
+        verified = None
+        if not any(sep in command for sep in ("/", "\\")):
+            client_dirs, adapter_dirs = windows_search_paths(kernel, parent_image, parent, command)
+            verified = resolve_bare_exe(command, client_dirs, adapter_dirs)
     except OSError as exc:
         fail(f"cannot create Windows job: {exc}")
+    except ValueError as exc:
+        fail(str(exc))
+    except RuntimeError as exc:
+        fail(str(exc))
     try:
         if wait_parent(parent, 0) != 0x102:
             fail("parent process exited before server launch")
-        child = subprocess.Popen([command, *args], shell=False, close_fds=True)
+        child = subprocess.Popen([command, *args], executable=verified, shell=False, close_fds=True)
         while child.poll() is None:
             if wait_parent(parent, 100) != 0x102:
                 kernel.TerminateJobObject(job, 1)

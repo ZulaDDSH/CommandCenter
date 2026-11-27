@@ -1,4 +1,5 @@
 import csv
+import importlib.util
 import json
 import os
 import subprocess
@@ -10,6 +11,9 @@ from pathlib import Path
 
 
 ADAPTER = Path(__file__).with_name("shared-mcp-adapter.py")
+SPEC = importlib.util.spec_from_file_location("shared_mcp_adapter_under_test", ADAPTER)
+ADAPTER_MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(ADAPTER_MODULE)
 
 
 class SharedMcpAdapterTests(unittest.TestCase):
@@ -68,6 +72,82 @@ class SharedMcpAdapterTests(unittest.TestCase):
                     )
                     self.assertEqual(result.returncode, 2)
                     self.assertIn(expected, result.stderr)
+
+    @unittest.skipUnless(os.name == "nt", "Windows executable search behavior")
+    def test_bare_executable_rejects_parent_and_python_directory_conflict(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client_dir = root / "client"
+            python_dir = root / "python"
+            client_dir.mkdir()
+            python_dir.mkdir()
+            client_exe = client_dir / "sample.exe"
+            python_exe = python_dir / "sample.exe"
+            client_exe.write_bytes(b"client candidate")
+            python_exe.write_bytes(b"python candidate")
+            with self.assertRaisesRegex(ValueError, "different executables"):
+                ADAPTER_MODULE.resolve_bare_exe("sample", [client_dir], [python_dir])
+
+    @unittest.skipUnless(os.name == "nt", "Windows PATH search behavior")
+    def test_bare_executable_accepts_same_path_collision_from_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client_dir = root / "client"
+            python_dir = root / "python"
+            path_dir = root / "path"
+            for path in (client_dir, python_dir, path_dir):
+                path.mkdir()
+            candidate = path_dir / "sample.exe"
+            candidate.write_bytes(Path(sys.executable).read_bytes())
+            resolved = ADAPTER_MODULE.resolve_bare_exe("sample", [client_dir, path_dir], [python_dir, path_dir])
+            self.assertEqual(os.path.normcase(os.path.abspath(resolved)), os.path.normcase(str(candidate.resolve())))
+
+    @unittest.skipUnless(os.name == "nt", "Windows PATH search behavior")
+    def test_bare_executable_rejects_application_directory_path_collision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client_dir = root / "client"
+            python_dir = root / "python"
+            path_dir = root / "path"
+            for path in (client_dir, python_dir, path_dir):
+                path.mkdir()
+            (client_dir / "sample.exe").write_bytes(b"client application candidate")
+            (path_dir / "sample.exe").write_bytes(b"PATH candidate")
+            with self.assertRaisesRegex(ValueError, "different executables"):
+                ADAPTER_MODULE.resolve_bare_exe("sample", [client_dir, path_dir], [python_dir, path_dir])
+
+    @unittest.skipUnless(os.name == "nt", "Windows adapter launch behavior")
+    def test_bare_launch_inherits_environment_and_cwd_without_shell(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            launch_cwd = root / "launch cwd"
+            launch_cwd.mkdir()
+            script = (
+                "import json, os, sys; "
+                "print(json.dumps({'cwd': os.getcwd(), 'env': os.environ['ADAPTER_TEST_MARKER'], 'args': sys.argv[1:]}))"
+            )
+            argument = "value&echo-shell-spawned"
+            adapter, _ = self.make_install(
+                root,
+                {"command": Path(sys.executable).stem, "args": ["-c", script, argument]},
+            )
+            env = os.environ.copy()
+            env["ADAPTER_TEST_MARKER"] = "inherited-value"
+            env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
+            result = subprocess.run(
+                [sys.executable, str(adapter), "sample"],
+                cwd=launch_cwd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                json.loads(result.stdout),
+                {"cwd": str(launch_cwd), "env": "inherited-value", "args": [argument]},
+            )
+            self.assertNotIn("shell-spawned", result.stdout)
 
     @unittest.skipUnless(os.name == "nt", "Windows job object behavior")
     def test_server_and_grandchild_exit_when_client_dies(self):
