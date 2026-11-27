@@ -518,3 +518,15 @@ Each `agents` entry carries the checkout and the lease of a live run: `worktree`
 ## lib/tasks.mjs:closeTask
 
 The only place a task is closed, and the fence itself. It reads the lease from `tasks.json` rather than from memory, then requires proof: a runner passes the `token` it was given by `claim` (renewal keeps the token, a takeover mints a new one) and the panel passes `panel: true` and must own the lease. A mismatch is refused with `lease-lost`, `lease-expired`, `lease-foreign` or `already-closed`, and a refusal writes nothing and kills nothing. `finish`, `cancel` and `markDone` all route through it, so a new close path cannot forget the check. `recoverAtBoot` claims a task only when `holderGone` says the previous holder is gone.
+
+## lib/tasks.mjs:startForCheck
+
+The one seam between the start path and its provider. `lib/tasks.mjs:startChild` builds the real call with
+`binCall` (which throws when the CLI is absent) and spawns it; `startForCheck(id, provider, override)`
+runs the same `startChild` with an optional `override()` that supplies `{ call, stdin }` instead, so a check
+child can perform the real locked status-to-running write on a machine with no provider CLI. Production
+never passes it: `tick` calls `startChild(t, p)` and the override stays null, so the resolved binary and
+`spawn` are used unchanged. The lease is claimed **inside** that same `update`: `claim(t)` used to run
+before the lock, and the locked `syncFromDisk` drops keys the disk row lacks, so the start write persisted
+`running` with no lease until the next heartbeat re-claimed it. Every claim site now sits inside its
+`update`, which is what the race asserts.

@@ -495,3 +495,31 @@ were removed so the log has a single writer and no second path that could interl
 - CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45949738702 — success, `133 passed, 0 failed`
   on `windows-latest`, for commit `0888a04`. The only later change is this line and the same link in
   `FEATURE-PARITY.md`.
+
+## 2026-11-27 — Stage 12: the start write, raced
+
+- Goal: none. Every writer already re-read under the store lock, but the write that marks a task running
+  had no cross-process case: `startChild` resolves a provider binary with `binCall`, which throws when the
+  CLI is absent, so a check child could not reach the locked write on a machine with no provider.
+- Exists: no assertion covered the start write; and the write itself had a defect — `claim(t)` ran before
+  the locked `update`, and the locked `syncFromDisk` drops keys the disk row lacks, so a started task
+  persisted as `running` **without a lease** until the next heartbeat claimed it 2 s later.
+- Changed:
+  - one documented seam: `lib/tasks.mjs:startForCheck(id, provider, override)` runs the real `startChild`
+    with an optional provider call supplied by the check, so a child performs the real locked
+    status-to-running write with no CLI installed. Production passes nothing and keeps `binCall`+`spawn`.
+  - `claim(t)` moved inside the `update` that writes the status, in `startChild` and in both
+    `startFreebuff` branches, so the lease is persisted atomically with `running`/`starting`.
+  - the race section runs a seventh child per round: it starts a waiting task through the seam while
+    another child closes a different task, and one assertion requires **both** the started row (running,
+    with its owner) and the closed row (done) in the same read.
+- Evidence: `node tools/director-check.mjs` → 134 passed, 0 failed (133 before). Bite: with
+  `syncFromDisk()` deleted from `update()` in a throwaway copy, the new case fails **0/5** — the started
+  row is `running` with an owner while its concurrently closed row comes back `running`, and the section
+  reports **10 closes lost**, `0/5` adds, `0/5` heartbeats, `0/5` retries, `0/5` titles.
+- Limitations: the seam supplies the provider call, so what is proven across processes is the locked
+  status write, not provider launch — `binCall` and `spawn` of a real CLI are not exercised this way.
+  `startFreebuff` (the panel's own Freebuff CLI) still has no cross-process case: it needs the Freebuff
+  driver runtime that CI has no session for. `tick`'s gates and provider selection are not part of it.
+- Next: a Freebuff start race needs a stub driver, not just a stub command; nothing else in the start
+  write is unasserted.

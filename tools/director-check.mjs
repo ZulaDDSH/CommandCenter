@@ -685,25 +685,27 @@ try {
   });
 
   const rounds2 = 5;
-  let addedMissing = 0, beatMissing = 0, closeMissing = 0, titleLost = 0, titleWon = 0, busyRefusals = 0, retryMissing = 0;
+  let addedMissing = 0, beatMissing = 0, closeMissing = 0, titleLost = 0, titleWon = 0, busyRefusals = 0, retryMissing = 0, startMissing = 0, startNote = '';
   for (let i = 0; i < rounds2; i++) {
-    const beatId = `beat-${i}`, closeId = `close-${i}`, fieldId = `field-${i}`, retryId = `retry-${i}`;
+    const beatId = `beat-${i}`, closeId = `close-${i}`, fieldId = `field-${i}`, retryId = `retry-${i}`, startId = `start-${i}`;
     const tok = fakeToken();
     const stamp = new Date().toISOString();
     seedRow({ id: beatId, title: `Beat ${i}`, text: 'beat', status: 'running', provider: 'codex', kind: 'light', ranOn: 'codex', startedAt: stamp, createdAt: stamp });
     seedRow({ id: closeId, title: `Close ${i}`, text: 'close', status: 'running', provider: 'codex', kind: 'light', ranOn: 'codex', startedAt: stamp, createdAt: stamp, lease: leaseNow(tok) });
     seedRow({ id: fieldId, title: `Field ${i}`, text: 'field', status: 'waiting', provider: 'codex', kind: 'light', hold: 'cc-boss', createdAt: stamp });
     seedRow({ id: retryId, title: `Retry ${i}`, text: 'retry', status: 'failed', provider: 'codex', kind: 'light', createdAt: stamp, reason: 'failed for the retry race' });
+    seedRow({ id: startId, title: `Start ${i}`, text: 'start', status: 'waiting', provider: 'codex', kind: 'light', createdAt: stamp });
     const at = Date.now() + 500;
-    const [added, beat, closed, approved, closed2, retried] = await Promise.all([
+    const [added, beat, closed, approved, closed2, retried, started] = await Promise.all([
       spawnJson(childCode(`const t = m.add({ text: 'concurrent add ${i}', title: 'concurrent add ${i}' }); console.log(JSON.stringify({ ok: true, id: t.id }));`, at)),
       spawnJson(childCode(`m.heartbeat(); const t = m.get(${JSON.stringify(beatId)}); console.log(JSON.stringify({ ok: !!(t && t.lease), owner: t && t.lease ? t.lease.owner : null }));`, at)),
       spawnJson(childCode(`const r = m.closeTask(${JSON.stringify(closeId)}, 'done', 'closed concurrently', { token: ${JSON.stringify(tok)} }); console.log(JSON.stringify({ ok: !!r.ok, code: r.code || null }));`, at)),
       spawnJson(childCode(`const r = m.approve(${JSON.stringify(fieldId)}, { title: 'renamed by writer' }); console.log(JSON.stringify({ ok: !!r }));`, at)),
       spawnJson(childCode(`const r = m.closeTask(${JSON.stringify(fieldId)}, 'done', 'note from the closer', { panel: true }); console.log(JSON.stringify({ ok: !!r.ok, code: r.code || null }));`, at)),
       spawnJson(childCode(`const r = m.retry(${JSON.stringify(retryId)}); console.log(JSON.stringify({ ok: !!r, status: r && r.status }));`, at)),
+      spawnJson(childCode(`const row = m.startForCheck(${JSON.stringify(startId)}, 'codex', () => ({ call: { cmd: process.execPath, args: ['-e', 'setTimeout(() => {}, 20000)'], opts: {} } })); console.log(JSON.stringify({ ok: !!(row && row.status === 'running'), status: row && row.status, owner: row && row.lease ? row.lease.owner : null })); process.exit(0);`, at)),
     ]);
-    for (const r of [added, beat, closed, approved, closed2, retried]) if (/busy|another writer|only inside a locked update/i.test(String(r?.error ?? ''))) busyRefusals++;
+    for (const r of [added, beat, closed, approved, closed2, retried, started]) if (/busy|another writer|only inside a locked update/i.test(String(r?.error ?? ''))) busyRefusals++;
     const rows = readStore();
     if (!added?.id || !rows.some(x => x.id === added.id && x.status === 'waiting')) addedMissing++;
     if (!beat?.ok || !rows.find(x => x.id === beatId)?.lease) beatMissing++;
@@ -712,12 +714,18 @@ try {
     if (fieldRow?.status !== 'done') closeMissing++;
     if (approved?.ok) { if (fieldRow?.title === 'renamed by writer') titleWon++; else titleLost++; }
     if (!retried?.ok || rows.find(x => x.id === retryId)?.status !== 'waiting') retryMissing++;
+    const startRow = rows.find(x => x.id === startId), startClose = rows.find(x => x.id === closeId);
+    if (!started?.ok || startRow?.status !== 'running' || !startRow?.lease?.owner || startClose?.status !== 'done') { startMissing++; startNote ||= JSON.stringify({ child: started, row: startRow && { status: startRow.status, owner: startRow.lease && startRow.lease.owner }, close: startClose && startClose.status }); }
   }
+  const startedRows = readStore().map(x => String(x.id).startsWith('start-') ? { ...x, status: 'cancelled', endedAt: new Date().toISOString(), reason: 'Closed by the check after the start race.' } : x);
+  fs.writeFileSync(storePath() + '.check', JSON.stringify(startedRows, null, 2));
+  fs.renameSync(storePath() + '.check', storePath());
   must('every concurrent add survived', addedMissing === 0, `${rounds2 - addedMissing}/${rounds2} rounds kept the new task`);
   must('every concurrent heartbeat kept its lease', beatMissing === 0, `${rounds2 - beatMissing}/${rounds2} rounds kept the lease`);
   must('every concurrent close survived', closeMissing === 0, `${closeMissing} round(s) lost a close`);
   must('a title written beside a close survived on the same task', titleLost === 0 && titleWon > 0, `${titleWon} kept, ${titleLost} lost`);
   must('a retry written beside a close took effect and cost no close', retryMissing === 0, `${rounds2 - retryMissing}/${rounds2} rounds retried`);
+  must('a start and a close in one round both survived', startMissing === 0, `${rounds2 - startMissing}/${rounds2} rounds started${startNote ? ' — ' + startNote : ''}`);
   must('no writer was refused because the store was busy', busyRefusals === 0, `${busyRefusals} refusal(s)`);
   must('the store lock is gone after all writers', !fs.existsSync(storeLockFile));
 
