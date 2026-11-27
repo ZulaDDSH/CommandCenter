@@ -49,7 +49,7 @@ To check it, with no effect on your real install:
 node tools/director-check.mjs
 ```
 
-It parse-checks every module, copies the app to a temp folder, commits that copy as a git repository and writes a fake `codex`, boots the panel there on 127.0.0.1, and proves the slice: routes, one goal assigned and finished, the worktree, the lease, the fence that refuses a close from any other writer, the evidence, pause/stop/resume, the signed machine hello, a second machine identity joining on its own data folder without seeing or disturbing the running task or being able to claim work, the merge refusals, and recovery from a kill mid-task. It starts no real provider and changes nothing outside the temp folder. `--keep` leaves the folder and prints the panel log. The same command is what `.github/workflows/director-check.yml` runs.
+It parse-checks every module, copies the app to a temp folder, commits that copy as a git repository and writes a fake `codex`, boots the panel there on 127.0.0.1, and proves the slice: routes, one goal assigned and finished, the worktree, the lease, the fence that refuses a close from any other writer, the evidence, pause/stop/resume, the signed machine hello, a second machine identity joining on its own data folder without seeing or disturbing the running task or being able to claim work, the store lock that keeps concurrent starts, heartbeats and closes from erasing each other, the merge refusals, and recovery from a kill mid-task. It starts no real provider and changes nothing outside the temp folder. `--keep` leaves the folder and prints the panel log. The same command is what `.github/workflows/director-check.yml` runs.
 
 ## Files
 

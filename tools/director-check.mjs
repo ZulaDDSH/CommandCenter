@@ -633,6 +633,92 @@ try {
   fs.writeFileSync(storePath() + '.check', JSON.stringify(cleaned, null, 2));
   fs.renameSync(storePath() + '.check', storePath());
 
+  console.log('\nConcurrent writers from separate processes');
+  const storeModule = pathToFileURL(path.join(app, 'lib', 'tasks.mjs')).href;
+  const storeLockFile = path.join(app, 'state', 'store.lock');
+  const seedRow = row => {
+    const list = readStore();
+    list.push(row);
+    fs.writeFileSync(storePath() + '.check', JSON.stringify(list, null, 2));
+    fs.renameSync(storePath() + '.check', storePath());
+  };
+  const leaseNow = token => ({ owner: 'other-host:1:x', token, at: new Date().toISOString(), ttl: 120000, expiresAt: new Date(Date.now() + 120000).toISOString() });
+  const childCode = (body, at) => `import(${JSON.stringify(storeModule)}).then(async m => { while (Date.now() < ${at}) {} try { ${body} } catch (e) { console.log(JSON.stringify({ ok: false, error: String((e && e.message) || e) })); } });`;
+  const spawnJson = code => new Promise(resolve => {
+    const p = spawn(process.execPath, ['-e', code], { windowsHide: true, env: { ...process.env } });
+    let out = '';
+    p.stdout.on('data', d => { out += d; });
+    p.stderr.on('data', d => { out += d; });
+    p.on('close', () => {
+      const line = out.trim().split(/\r?\n/).filter(Boolean).pop() ?? '';
+      let v = null;
+      try { v = JSON.parse(line); } catch {}
+      resolve(v ?? { ok: false, error: line.slice(0, 140) });
+    });
+  });
+
+  const rounds2 = 5;
+  let addedMissing = 0, beatMissing = 0, closeMissing = 0, titleLost = 0, titleWon = 0, busyRefusals = 0;
+  for (let i = 0; i < rounds2; i++) {
+    const beatId = `beat-${i}`, closeId = `close-${i}`, fieldId = `field-${i}`;
+    const tok = fakeToken();
+    const stamp = new Date().toISOString();
+    seedRow({ id: beatId, title: `Beat ${i}`, text: 'beat', status: 'running', provider: 'codex', kind: 'light', ranOn: 'codex', startedAt: stamp, createdAt: stamp });
+    seedRow({ id: closeId, title: `Close ${i}`, text: 'close', status: 'running', provider: 'codex', kind: 'light', ranOn: 'codex', startedAt: stamp, createdAt: stamp, lease: leaseNow(tok) });
+    seedRow({ id: fieldId, title: `Field ${i}`, text: 'field', status: 'waiting', provider: 'codex', kind: 'light', hold: 'cc-boss', createdAt: stamp });
+    const at = Date.now() + 500;
+    const [added, beat, closed, approved, closed2] = await Promise.all([
+      spawnJson(childCode(`const t = m.add({ text: 'concurrent add ${i}', title: 'concurrent add ${i}' }); console.log(JSON.stringify({ ok: true, id: t.id }));`, at)),
+      spawnJson(childCode(`m.heartbeat(); const t = m.get(${JSON.stringify(beatId)}); console.log(JSON.stringify({ ok: !!(t && t.lease), owner: t && t.lease ? t.lease.owner : null }));`, at)),
+      spawnJson(childCode(`const r = m.closeTask(${JSON.stringify(closeId)}, 'done', 'closed concurrently', { token: ${JSON.stringify(tok)} }); console.log(JSON.stringify({ ok: !!r.ok, code: r.code || null }));`, at)),
+      spawnJson(childCode(`const r = m.approve(${JSON.stringify(fieldId)}, { title: 'renamed by writer' }); console.log(JSON.stringify({ ok: !!r }));`, at)),
+      spawnJson(childCode(`const r = m.closeTask(${JSON.stringify(fieldId)}, 'done', 'note from the closer', { panel: true }); console.log(JSON.stringify({ ok: !!r.ok, code: r.code || null }));`, at)),
+    ]);
+    for (const r of [added, beat, closed, approved, closed2]) if (/busy|another writer|only inside a locked update/i.test(String(r?.error ?? ''))) busyRefusals++;
+    const rows = readStore();
+    if (!added?.id || !rows.some(x => x.id === added.id && x.status === 'waiting')) addedMissing++;
+    if (!beat?.ok || !rows.find(x => x.id === beatId)?.lease) beatMissing++;
+    if (!closed?.ok || rows.find(x => x.id === closeId)?.status !== 'done') closeMissing++;
+    const fieldRow = rows.find(x => x.id === fieldId);
+    if (fieldRow?.status !== 'done') closeMissing++;
+    if (approved?.ok) { if (fieldRow?.title === 'renamed by writer') titleWon++; else titleLost++; }
+  }
+  must('every concurrent add survived', addedMissing === 0, `${rounds2 - addedMissing}/${rounds2} rounds kept the new task`);
+  must('every concurrent heartbeat kept its lease', beatMissing === 0, `${rounds2 - beatMissing}/${rounds2} rounds kept the lease`);
+  must('every concurrent close survived', closeMissing === 0, `${closeMissing} round(s) lost a close`);
+  must('a title written beside a close survived on the same task', titleLost === 0 && titleWon > 0, `${titleWon} kept, ${titleLost} lost`);
+  must('no writer was refused because the store was busy', busyRefusals === 0, `${busyRefusals} refusal(s)`);
+  must('the store lock is gone after all writers', !fs.existsSync(storeLockFile));
+
+  console.log('\nA writer that cannot get the store lock');
+  fs.mkdirSync(path.dirname(storeLockFile), { recursive: true });
+  fs.writeFileSync(storeLockFile, 'held by the check');
+  const beforeCount = readStore().length;
+  const busy = await spawnJson(childCode(`const t = m.add({ text: 'must not land', title: 'must not land' }); console.log(JSON.stringify({ ok: true, id: t.id }));`, Date.now()));
+  must('it refuses instead of writing stale state', busy?.ok === false && /busy|another writer/i.test(String(busy?.error ?? '')), String(busy?.error ?? 'wrote anyway').slice(0, 140));
+  must('the refused writer changed nothing', readStore().length === beforeCount, `${readStore().length} rows vs ${beforeCount}`);
+  fs.unlinkSync(storeLockFile);
+  fs.writeFileSync(storeLockFile, 'left by a crashed writer');
+  const oldMtime = new Date(Date.now() - 90000);
+  fs.utimesSync(storeLockFile, oldMtime, oldMtime);
+  const broke = await spawnJson(childCode(`const t = m.add({ text: 'after a stale lock', title: 'after a stale lock' }); console.log(JSON.stringify({ ok: true, id: t.id }));`, Date.now()));
+  must('a stale lock is broken instead of blocking forever', !!broke?.id, broke?.id ? `added ${broke.id}` : String(broke?.error ?? 'no id').slice(0, 140));
+  must('the broken lock is cleaned up', !fs.existsSync(storeLockFile));
+
+  console.log('\nRecovery on a store left mid-write');
+  const recId = 'left-running';
+  seedRow({ id: recId, title: 'Left running', text: 'x', status: 'running', provider: 'codex', kind: 'light', ranOn: 'codex', startedAt: new Date().toISOString(), createdAt: new Date().toISOString(), lease: { owner: 'gone-host:1:x', token: fakeToken(), at: new Date().toISOString(), ttl: 120000, expiresAt: new Date(Date.now() - 60000).toISOString() } });
+  fs.writeFileSync(storePath() + '.tmp', '{"half":');
+  fs.writeFileSync(storeLockFile, 'left by the crash');
+  fs.utimesSync(storeLockFile, oldMtime, oldMtime);
+  const rec = await spawnJson(childCode(`const n = m.recoverAtBoot(); console.log(JSON.stringify({ ok: true, n }));`, Date.now()));
+  must('recovery works on a store left mid-write', rec?.n >= 1, `${rec?.n ?? 'none'} task(s) taken`);
+  must('recovery interrupted the dead task', readStore().find(x => x.id === recId)?.status === 'interrupted', readStore().find(x => x.id === recId)?.status ?? 'missing');
+  must('recovery left no lock behind', !fs.existsSync(storeLockFile));
+  const tidy = readStore().filter(x => !/^(beat|close|field)-/.test(String(x.id)) && x.id !== recId);
+  fs.writeFileSync(storePath() + '.check', JSON.stringify(tidy, null, 2));
+  fs.renameSync(storePath() + '.check', storePath());
+
   ok(parsed ? 'parse checks passed before the run' : 'parse checks reported failures above');
 } catch (e) {
   bad('check run completed', e?.stack ? String(e.stack).split('\n').slice(0, 4).join(' | ') : String(e?.message ?? e));

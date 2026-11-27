@@ -353,3 +353,42 @@ route `POST /director/stage` is the way to add an entry from a running panel.
   record file, so no writer ever serializes a snapshot again.
 - CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45945559733 — success, `111 passed, 0 failed`
   on `windows-latest`, for commit `d8cb07f`. The only later change is this line.
+
+## 2026-11-27 — Stage 7: every task write goes through one locked compare-and-set
+
+- Goal: none. Stage 6 put `closeTask` and `recoverAtBoot` under `state/store.lock`; every other mutation
+  still serialized the process's whole in-memory array.
+- Exists: `add`, `approve`, `resumeInterrupted`, `retry`, the worktree note, four writes in
+  `startFreebuff`, `fbFail`, both `startChild` writes, `requeueResume`, `heartbeat` and three `tick`
+  reason/note writes each mutated a task object and called a `save()` that wrote the entire array from
+  that process's memory. A concurrent write from another process was erased by whichever writer saved
+  last, and `worktreeNote`, `conversationId` and `expiresAt` were persisted only by whatever unrelated
+  whole-file write happened next — which under a re-read store would silently disappear.
+- Changed: `save()` is gone. `touch()` marks the store dirty and throws unless a locked `update()` is
+  running; `update()` takes `state/store.lock`, re-reads the file and merges each row into the existing
+  task objects, runs the caller's mutation against that current row, and writes once. `setFields(id,
+  fields)` covers the reason/note/conversation/expiry paths. Every site above was converted, so a caller
+  can no longer persist a private snapshot and a mutation applies only its own fields to the current
+  on-disk row. A writer that cannot get the lock within 10 s throws `store-busy`; `closeTask` still turns
+  that into a refusal and `recoverAtBoot` takes nothing.
+- Evidence: `node tools/director-check.mjs` → 124 passed, 0 failed (111 before). The new section runs 5
+  rounds of 5 processes started on a shared timestamp: one adds a task, one renews a lease through
+  `heartbeat()`, one closes a different task with its token, and two work on the same task — an
+  `approve` that renames it and a close that sets its status and note. It asserts every add, lease and
+  close survives on disk, that a title written beside a close on the same task is still there, that no
+  writer was refused for a busy store, and that no lock file is left. It then exercises the refusal path
+  (lock held → `store-busy`, 26 rows unchanged), the stale-lock path (lock backdated 90 s → broken, write
+  succeeds, lock removed) and restart recovery on a store left mid-write (garbage `tasks.json.tmp` plus a
+  stale lock → the dead task came back `interrupted`, the store stayed readable, no lock left).
+  The same check run against `HEAD`'s `lib/tasks.mjs` (only `export` added to `heartbeat`) loses:
+  **0 of 5 rounds kept a heartbeat lease**, **10 closes lost**, **0 of 5 titles kept**, the writer
+  **wrote through a held lock** (27 rows against 26) and the leftover lock stayed. 6 assertions failed.
+- Limitations: the lock is a local file lock (`wx`, stale after 30 s) between processes on one machine.
+  Two machines pointing at one store over a network share are not protected and nothing claims they are.
+  Two writers of the same field are still last-write-wins, which is the intended value, not lost data.
+  There is no `fsync`: a power cut can still leave a short or empty `tasks.json`, and recovery reads that
+  as an empty store rather than repairing it. `add()` checks the live-task limits before taking the lock,
+  so two simultaneous adds can exceed `MAX_LIVE` by one. `startFreebuff` still mutates its in-process CLI
+  map outside the store, which is deliberate.
+- Next: per-task record files (or SQLite) once the store outgrows a single writer, and an fsync plus a
+  backup-on-open for power loss.

@@ -110,6 +110,9 @@ Run against a copy of the app in `%TEMP%`, with its own `config.json`, `tasks.js
 | Result with evidence | report file with bytes and quoted head, `exitCode 0`, worktree head commit, goal stage `done` |
 | Concurrent closes | two processes importing the store closed different leased tasks with a shared start time, 8 rounds: both stayed closed every round with no refusal and the lock file was gone afterwards |
 | Recovery reads the store, not a snapshot | a direct recoverAtBoot() beside a live holder re-read the file under the same lock, took nothing, and the live task kept its token; the previous snapshot read could take a task whose on-disk lease was live |
+| Concurrent writers, separate processes | 5 rounds of 5 processes each (add, heartbeat, two closes, approve on the same task) with a shared start: every add, lease and close survived, the title written beside a close survived on that task, no writer was refused and no lock file was left |
+| A busy store refuses | with state/store.lock held, a writer was refused (another writer is holding the task store) and the store kept its 26 rows |
+| Stale lock and mid-write store | a lock backdated 90 s was broken and the write succeeded; recovery over a garbage tasks.json.tmp plus a stale lock took the dead task, left the store readable and removed the lock |
 | Pause gates the queue | a task added while paused stayed `waiting` for 6 s with reason `Paused: …` |
 | Stop and resume | stop cancelled the held task and set the goal `stopped`; resume let a new task run |
 | Interruption recovers | panel killed mid-run → task came back `interrupted` (not `failed`), one copy only, same worktree, stale `state/panel.lock` taken over, still not restarted 6 s later |
