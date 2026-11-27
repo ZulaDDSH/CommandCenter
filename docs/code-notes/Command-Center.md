@@ -728,3 +728,7 @@ The limits check is a pure unit run on a throwaway `CC_ROOT`. Its sections cover
 
 
 `lib/session-meta.mjs:freebuffEnded` treats a tracked task status as authoritative for its Freebuff session. An untracked session uses its report as completion evidence; a running retry or failed task is not marked done merely because an older report exists. The list, session detail, and Director discovery apply the same rule. `lib/session-meta.mjs:freebuffBusy` protects a running retry from deletion even when an older report exists.
+
+`lib/session-origin.mjs:sessionOrigin` scopes session discovery to recorded Command Center task IDs and explicit provider evidence. Codex uses session IDs printed in task logs; OpenCode uses the task ID in its generated title; Claude and Cursor use the exact task-file pointer in their initial prompt; Freebuff uses its task segment. Retries can change the current provider, so historical links do not depend on `ranOn`. Runs without surviving evidence cannot be linked, and provider history is never altered by filtering.
+
+`usage/providers.mjs:opencode` reads the documented OpenCode Go usage windows using the existing local Go key. Percentages represent shared plan usage across Go models. Authentication and network failures are shown without exposing the key; the other providers' unavailable account limits are not inferred from spending.

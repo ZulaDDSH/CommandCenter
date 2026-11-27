@@ -7,8 +7,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import { all as providerUsage } from '../usage/providers.mjs';
 import { pick as route } from '../route.mjs';
 import { config, ROOT } from '../lib/config.mjs';
-import { lists as sessionLists, details as sessionDetails } from '../lib/sessions.mjs';
+import { rawLists as sessionLists, details as sessionDetails } from '../lib/sessions.mjs';
 import { capRows, decorate, freebuffEnded, metaFor } from '../lib/session-meta.mjs';
+import { sessionOrigin } from '../lib/session-origin.mjs';
 import * as tasks from '../lib/tasks.mjs';
 import * as setup from '../lib/setup.mjs';
 import { listModels } from '../lib/models.mjs';
@@ -253,9 +254,10 @@ const SESS_LIMIT = 50;
 let sessCache = { at: 0, body: '[]' };
 function allSessions() {
   if (Date.now() - sessCache.at < 15000) return sessCache.body;
-  const out = decorate('freebuff', loadSessions().map(s => { const ended = freebuffEnded(s, tasks.get(s.slug)); return { provider: 'freebuff', id: s.slug, title: s.title ?? s.slug, cwd: worktree(s.slug), mtime: s.mtime, pid: s.queued || ended ? null : chatPid(s.dir), ended, state: ended ? 'done' : !s.queued && Date.now() - s.mtime < 120000 ? 'working' : 'idle' }; }));
+  const belongs = sessionOrigin(tasks.list(), tasks.logFile);
+  const out = decorate('freebuff', loadSessions().filter(s => belongs('freebuff', s)).map(s => { const ended = freebuffEnded(s, tasks.get(s.slug)); return { provider: 'freebuff', id: s.slug, title: s.title ?? s.slug, cwd: worktree(s.slug), mtime: s.mtime, pid: s.queued || ended ? null : chatPid(s.dir), ended, state: ended ? 'done' : !s.queued && Date.now() - s.mtime < 120000 ? 'working' : 'idle' }; }));
   for (const [p, fn] of Object.entries(sessionLists)) {
-    try { out.push(...capRows(p, fn(SESS_LIMIT + 6), SESS_LIMIT)); } catch (e) { out.push({ provider: p, id: '', title: `Could not read ${p} sessions: ${e.message}`, state: 'done', mtime: 0 }); }
+    try { out.push(...capRows(p, decorate(p, fn(1000).filter(s => belongs(p, s))), SESS_LIMIT)); } catch (e) { out.push({ provider: p, id: '', title: `Could not read ${p} sessions: ${e.message}`, state: 'done', mtime: 0 }); }
   }
   sessCache = { at: Date.now(), body: JSON.stringify(out) };
   return sessCache.body;

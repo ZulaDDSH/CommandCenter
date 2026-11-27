@@ -43,7 +43,12 @@ function usageDetails(provider,entry){
   const rows=(entry.windows||[]).map(w=>{const left=!w.stale&&typeof w.usedPercent==='number'?Math.max(0,Math.min(100,100-w.usedPercent))+'% left':'Unavailable';const label=w.minutes>=1440?(w.minutes/1440)+'-day window':w.minutes?(w.minutes/60)+'-hour window':'Usage window';return '<div class="usage-line"><span>'+esc(label)+(w.resetsAt?'<small>Resets '+esc(new Date(w.resetsAt).toLocaleString())+'</small>':'')+'</span><b>'+esc(left)+'</b></div>'}).join('');
   return '<p>These usage windows are shared across Codex models.</p>'+(rows||'<div class="usage-empty">Remaining usage is unavailable.</div>');
  }
- return '<div class="usage-empty">Remaining model usage is not available from this provider.</div>';
+ if(provider==='opencode'){
+  const names={rolling:'5-hour window',weekly:'Weekly window',monthly:'Monthly window'};
+  const rows=(entry.windows||[]).map(w=>'<div class="usage-line"><span>'+esc(names[w.name]||w.name)+(w.resetsAt?'<small>Resets '+esc(new Date(w.resetsAt).toLocaleString())+'</small>':'')+'</span><b>'+esc((100-w.usedPercent)+'% left')+'</b></div>').join('');
+  return '<p>OpenCode Go models share these usage windows.</p>'+(rows||'<div class="usage-empty">'+esc(entry.note||'Remaining usage is unavailable.')+'</div>');
+ }
+ return '<div class="usage-empty">Remaining usage is unavailable. Check your '+esc(P[provider])+' account for its current limits.</div>';
 }
 function usageDrawer(budget){
  const providers=(budget&&budget.providers)||{},order=['freebuff','codex','cursor','opencode','claude','antigravity'];
