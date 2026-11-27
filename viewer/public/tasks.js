@@ -2,11 +2,11 @@
 const P={freebuff:'Freebuff',codex:'Codex',cursor:'Cursor',opencode:'OpenCode',claude:'Claude',antigravity:'Antigravity',auto:'Automatic'};
 const KINDS={code:['Coding','Real changes: features and fixes. Uses the strongest model.'],light:['Small coding','Small, clearly scoped edits. Uses a cheaper, faster model.'],read:['Read only','Looking, summarising and reviewing. The agent may not change files, only write its report.']};
 const j=async u=>{try{return await (await fetch(u)).json()}catch(e){return null}};
-const ms=v=>v&&v<1e11?v*1000:v||0;
 const ts=iso=>iso?Date.parse(iso):0;
 const at=iso=>iso?ago(ts(iso)):'';
 const short=p=>String(p||'').split(/[\\/]+/).filter(Boolean).slice(-2).join('/');
 const plural=(n,w)=>n+' '+w+(n===1?'':'s');
+let usageOpen=false,usageProvider='freebuff',usageNotice='',usageRefreshId=0;
 const badge=p=>'<span class="tk-badge p-'+esc(p)+'">'+esc(P[p]||p)+'</span>';
 const isRun=t=>t.status==='running'||t.status==='starting';
 const DOT={running:'live',starting:'idle',waiting:'queued',done:'done',failed:'failed',cancelled:'cancelled',interrupted:'failed'};
@@ -26,45 +26,47 @@ function put(el,key,rootId,html){
  const active=el.contains(document.activeElement)?document.activeElement:null;
  const match=b=>active&&['tk','id','t','p'].every(k=>b.dataset[k]===active.dataset[k]);
  const index=active?.matches('button[data-tk]')?Array.from(el.querySelectorAll('button[data-tk]')).filter(match).indexOf(active):-1;
- const st=el.scrollTop;el.innerHTML=html;shownHtml[key]=html;el.scrollTop=st;
+ const st=el.scrollTop,usageTop=el.querySelector('#home-usage-body')?.scrollTop||0;el.innerHTML=html;shownHtml[key]=html;el.scrollTop=st;const usageBody=el.querySelector('#home-usage-body');if(usageBody)usageBody.scrollTop=usageTop;
  if(index>=0)Array.from(el.querySelectorAll('button[data-tk]')).filter(match)[index]?.focus({preventScroll:true})}
 
-function hoursCard(u){
- if(!u||u.loading)return card('Freebuff hours left','…','',['Checking…']);
- if(u.error||!u.today)return card('Freebuff hours left','?','',[esc(u.error||'No data yet.')]);
- const t=u.today,[hh,mm]=String(t.left).split(':').map(Number),pct=t.limit?Math.round(100*(hh+(mm||0)/60)/t.limit):0;
- return card('Freebuff hours left',esc(t.left),'of '+esc(t.limit)+' h today',[bar(pct),t.flashHours!=null?'About '+esc(t.flashHours)+' h of DeepSeek work.':'','Cheaper models cost less of these hours.'])}
-
-function routeCard(r){
- if(!r||r.loading)return card('Automatic routing','…','',['Checking usage…']);
- if(r.error)return card('Automatic routing','unknown','',[esc(r.error)]);
- return card('Automatic routing',esc(P[r.provider]||r.provider),esc(r.model),[esc(r.why),'For automatic coding tasks; Director uses its configured or an available provider.'])}
-
+const getBudget=async()=>{try{const r=await fetch('/budget');if(!r.ok)throw 0;return await r.json()}catch{return {error:'Could not load usage. Try again.'}}};
+function usageDetails(provider,entry){
+ if(!entry)return '<div class="usage-empty">Usage is unavailable right now.</div>';
+ if(!entry.enabled)return '<div class="usage-empty">This provider is turned off.</div>';
+ if(entry.error)return '<div class="usage-empty">Usage could not be read: '+esc(entry.error)+'</div>';
+ if(provider==='freebuff'){
+  const head=entry.hoursLeft!=null?'<div class="usage-line"><span>Shared Freebuff hours</span><b>'+esc(entry.hoursLeft)+' left</b></div>':'<div class="usage-empty">Shared hours unavailable.</div>';
+  const rows=(entry.models||[]).map(m=>'<div class="usage-line"><span>'+esc(m.name)+'</span><b>'+esc(m.workHoursLeft==='unlimited'?'No Freebuff hours charged':m.workHoursLeft==null?'Unavailable':m.workHoursLeft+' h estimated')+'</b></div>').join('');
+  return head+'<p>Model estimates use the shared Freebuff allowance.</p>'+(rows||'<div class="usage-empty">Model estimates are unavailable.</div>');
+ }
+ if(provider==='codex'){
+  const rows=(entry.windows||[]).map(w=>{const left=!w.stale&&typeof w.usedPercent==='number'?Math.max(0,Math.min(100,100-w.usedPercent))+'% left':'Unavailable';const label=w.minutes>=1440?(w.minutes/1440)+'-day window':w.minutes?(w.minutes/60)+'-hour window':'Usage window';return '<div class="usage-line"><span>'+esc(label)+(w.resetsAt?'<small>Resets '+esc(new Date(w.resetsAt).toLocaleString())+'</small>':'')+'</span><b>'+esc(left)+'</b></div>'}).join('');
+  return '<p>These usage windows are shared across Codex models.</p>'+(rows||'<div class="usage-empty">Remaining usage is unavailable.</div>');
+ }
+ if(provider==='opencode'){
+  const names={rolling:'5-hour window',weekly:'Weekly window',monthly:'Monthly window'};
+  const rows=(entry.windows||[]).map(w=>'<div class="usage-line"><span>'+esc(names[w.name]||w.name)+(w.resetsAt?'<small>Resets '+esc(new Date(w.resetsAt).toLocaleString())+'</small>':'')+'</span><b>'+esc((100-w.usedPercent)+'% left')+'</b></div>').join('');
+  return '<p>OpenCode Go models share these usage windows.</p>'+(rows||'<div class="usage-empty">'+esc(entry.note||'Remaining usage is unavailable.')+'</div>');
+ }
+ return '<div class="usage-empty">Remaining usage is unavailable. Check your '+esc(P[provider])+' account for its current limits.</div>';
+}
+function usageDrawer(budget){
+ const providers=(budget&&budget.providers)||{},order=['freebuff','codex','cursor','opencode','claude','antigravity'];
+ return '<section role="region" id="home-usage" class="home-usage'+(usageOpen?' is-open':'')+'" aria-label="Model usage" aria-hidden="'+(!usageOpen)+'"'+(usageOpen?'':' inert')+'><div class="usage-head"><div><h2>Model usage</h2><p>Remaining usage by provider</p></div><div class="usage-actions"><button type="button" class="pill" data-tk="usage-refresh">Refresh</button><button type="button" class="pill" data-tk="usage-close" aria-label="Close usage">Close</button></div></div><div class="usage-tabs" aria-label="Usage providers">'+order.map(p=>'<button type="button" class="pill'+(p===usageProvider?' on':'')+'" data-tk="usage-provider" data-p="'+p+'" aria-pressed="'+(p===usageProvider)+'">'+esc(P[p])+'</button>').join('')+'</div><div id="home-usage-body" class="usage-body"><h3>'+esc(P[usageProvider])+'</h3><div class="usage-notice" role="status">'+esc(usageNotice)+'</div>'+(budget?.error?'<div class="usage-empty">'+esc(budget.error)+'</div>':budget?usageDetails(usageProvider,providers[usageProvider]):'<div class="usage-empty">Loading usage...</div>')+'</div></section>';
+}
 PAGES.home=async el=>{
  if(busy.home)return;busy.home=1;
  try{
-  const [t,ss,r,u,bd]=await Promise.all([j('/tasks'),j('/sessions'),j('/usage?p=route'),j('/usage?p=freebuff'),j('/board?json=1')]);
+  const [t,budget]=await Promise.all([j('/tasks?brief=1'),usageOpen?getBudget():Promise.resolve(null)]);
   if(tab!=='home')return;
-  const tasks=t?.tasks||[],run=tasks.filter(isRun).length,wait=tasks.filter(x=>x.status==='waiting').length,fail=tasks.filter(x=>x.status==='failed').length;
-  const today=new Date().toDateString(),doneToday=tasks.filter(x=>x.status==='done'&&new Date(ts(x.endedAt)).toDateString()===today).length;
-  const work=(Array.isArray(ss)?ss:[]).filter(s=>(s.live==='running'||s.live==='reported'||s.live==='recent')&&!s.archived).sort((a,b)=>ms(b.mtime)-ms(a.mtime));
-  const bits=[];if(run)bits.push(plural(run,'task')+' running');if(wait)bits.push(wait+' waiting');if(work.length)bits.push(plural(work.length,'agent')+' with recent activity');
-  const hello=bits.length?bits.join(', '):'All quiet. Nothing is running right now.';
-  const per=['freebuff','codex','cursor','opencode','claude','antigravity'].map(p=>[p,work.filter(s=>s.provider===p).length]).filter(x=>x[1]);
-  const att=tasks.filter(x=>x.note&&(x.status==='failed'||x.status==='waiting'||isRun(x))).sort((a,b)=>(ts(b.endedAt)||ts(b.createdAt))-(ts(a.endedAt)||ts(a.createdAt)));
-  const notes=(Array.isArray(bd)?bd:[]).slice(-3).reverse();
-  const html='<div id="hm-root" class="tk home-page"><div class="cc-pagehead"><div><div class="cc-eyebrow">WORKSPACE / OVERVIEW</div><div class="tk-hello">Your command center</div><p class="cc-lead">'+esc(hello)+'</p></div><div class="cc-quick">'+btn('tab','Open Director','',' data-t="director"')+btn('tab','Browse sessions','',' data-t="sessions"')+'</div></div>'+health(t)
-   +'<div class="cards">'
-   +card('Tasks',String(run),'running',[wait+' waiting in line',doneToday+' finished today',fail+' failed'])
-   +card('Agents with recent activity',String(work.length),'',per.length?per.map(x=>esc(P[x[0]])+': '+x[1]):['No recent activity.'])
-   +routeCard(r)+hoursCard(u)+'</div>'
-   +(att.length?'<div class="tk-h">Needs a look</div>'+att.slice(0,5).map(x=>'<div class="tk-att"><div>'+dot(x.status)+'<b>'+esc(x.title)+'</b> <span class="m">'+esc(x.status)+(x.ranOn?' on '+esc(P[x.ranOn]||x.ranOn):'')+'</span></div><div class="tk-note">'+esc(x.note)+'</div><div>'+(x.status==='failed'&&!x.parent?btn('retry','Retry',x.id)+' ':'')+btn('tab','Open Director','',' data-t="director"')+'</div></div>').join('')+(att.length>5?'<div class="m">'+(att.length-5)+' more on the Director tab.</div>':''):'')
-   +(tasks.some(isRun)?'<div class="tk-h">Tasks running</div><div class="tk-rows">'+tasks.filter(isRun).slice(0,20).map(x=>'<button type="button" class="tk-row" data-tk="tab" data-t="director" data-id="'+esc(x.id)+'">'+badge(x.ranOn||x.provider)+'<span class="tk-rt">'+(x.role==='orchestrator'?'Director: ':'')+esc(x.title)+'</span><span class="m">'+esc(x.model||x.modelPref||'')+'</span><span class="m">'+(x.expiresAt?'<b>'+esc(left(x.expiresAt))+' left</b>':x.ranOn==='freebuff'?'no hour yet':'')+'</span></button>').join('')+'</div>':'')
-   +'<div class="tk-h">Recent activity (last 2 minutes)</div>'
-   +(work.length?'<div class="tk-rows">'+work.slice(0,40).map(s=>'<button type="button" class="tk-row" data-tk="open" data-p="'+esc(s.provider)+'" data-id="'+esc(s.id)+'">'+badge(s.provider)+'<span class="tk-rt">'+esc(String(s.title||s.id).slice(0,90))+'</span><span class="m tk-rf" title="'+esc(s.cwd||'')+'">'+esc(short(s.cwd))+'</span><span class="m">'+(ms(s.mtime)?ago(ms(s.mtime)):'')+'</span></button>').join('')+'</div>':'<div class="tk-empty">No agent has written in the last 2 minutes.</div>')
-   +'<div class="tk-h">Latest board notes '+btn('tab','Open Director','',' data-t="director"')+'</div>'
-   +(notes.length?notes.map(n=>'<div class="note"><div class="m"><b>'+esc(n.from)+'</b> · '+when(n.at)+'</div><div class="t">'+md(String(n.text).slice(0,300)+(String(n.text).length>300?'…':''))+'</div></div>').join(''):'<div class="tk-empty">No notes yet.</div>')
-   +'</div>';
+  const tasks=t?.tasks||[],run=tasks.filter(isRun).length,wait=tasks.filter(x=>x.status==='waiting').length;
+  const hello=run||wait?[run?plural(run,'task')+' running':'',wait?plural(wait,'task')+' waiting':''].filter(Boolean).join(' · '):'No Command Center tasks are running.';
+  const html='<div id="hm-root" class="tk home-page"><div class="home-intro"><div class="cc-eyebrow">WORKSPACE / OVERVIEW</div><h1>Your command center</h1><p>'+esc(hello)+'</p><button type="button" class="pill home-usage-trigger" data-tk="usage-open" aria-controls="home-usage" aria-expanded="'+usageOpen+'">Model usage</button></div>'+health(t)
+   +'<div class="home-nav" aria-label="Workspace pages"><div class="home-nav-heading">WORKSPACE</div>'
+   +'<button type="button" class="home-link" data-tk="tab" data-t="director"><span><b>Director</b><small>Plan and follow work</small></span><span aria-hidden="true">→</span></button>'
+   +'<button type="button" class="home-link" data-tk="tab" data-t="sessions"><span><b>Sessions</b><small>Open conversations and see their status</small></span><span aria-hidden="true">→</span></button>'
+   +'<button type="button" class="home-link" data-tk="tab" data-t="archive"><span><b>Archive</b><small>Find previous work</small></span><span aria-hidden="true">→</span></button>'
+   +'<button type="button" class="home-link" data-tk="tab" data-t="setup"><span><b>Setup</b><small>Manage providers and preferences</small></span><span aria-hidden="true">→</span></button></div>'+usageDrawer(budget)+'</div>';
   put(el,'home','hm-root',html);
  }finally{busy.home=0}};
 
@@ -145,9 +147,12 @@ window.TASKS=async el=>{
 document.addEventListener('click',async e=>{
  const b=e.target.closest('[data-tk]');if(!b)return;
  const a=b.dataset.tk,id=b.dataset.id;
+ if(a==='usage-open'||a==='usage-close'){usageOpen=a==='usage-open';if(!usageOpen){usageRefreshId++;usageNotice=''}const drawer=$('home-usage'),trigger=document.querySelector('[data-tk="usage-open"]');drawer.classList.toggle('is-open',usageOpen);drawer.inert=!usageOpen;drawer.setAttribute('aria-hidden',String(!usageOpen));trigger?.setAttribute('aria-expanded',String(usageOpen));if(usageOpen){drawer.querySelector('[data-tk="usage-close"]')?.focus();PAGES.home($('prov'))}else trigger?.focus();return}
+ if(a==='usage-provider'){usageRefreshId++;usageProvider=b.dataset.p;usageNotice='';return PAGES.home($('prov'))}
+ if(a==='usage-refresh'){const p=usageProvider,id=++usageRefreshId;usageNotice='Refreshing usage...';const n=$('home-usage-body')?.querySelector('.usage-notice');if(n)n.textContent=usageNotice;try{const ps=p==='freebuff'?['freebuff','fbmodels']:['codex','cursor','opencode'].includes(p)?[p]:[];const results=await Promise.all(ps.map(x=>fetch('/usage?p='+encodeURIComponent(x)+'&fresh=1')));if(results.some(r=>!r.ok))throw 0;if(id!==usageRefreshId)return;usageNotice=ps.length?'Refresh requested. Values may take a moment.':'Checking available usage...'}catch{if(id!==usageRefreshId)return;usageNotice='Could not request a refresh.'}if(tab==='home'&&usageOpen)PAGES.home($('prov'));setTimeout(()=>{if(id!==usageRefreshId)return;usageNotice='';if(tab==='home'&&usageOpen)PAGES.home($('prov'))},3000);return}
  if(a==='tab')return setTab(b.dataset.t);
  if(a==='open'){
-  if(b.dataset.p==='freebuff'){setTab('freebuff');location.hash=id}else window.openSession?.(b.dataset.p,id);
+  window.openSession?.(b.dataset.p,id);
   return}
  if(a==='view'){
   if(open.has(id))open.delete(id);else{open.add(id);delete views[id]}
@@ -162,6 +167,7 @@ document.addEventListener('click',async e=>{
  if(tab==='home')PAGES.home($('prov'));else if(tab==='director'&&$('tk-root'))load();
 });
 
+document.addEventListener('keydown',e=>{if(tab==='home'&&usageOpen&&e.key==='Escape'){e.preventDefault();document.querySelector('[data-tk="usage-close"]')?.click()}});
 const refresh=()=>{if(tab==='home')PAGES.home($('prov'),true)};
 setInterval(refresh,4500);refresh();setTimeout(refresh,1500);
 })();

@@ -86,8 +86,23 @@ function parseStats(text) {
 }
 export async function opencode() {
   const [day, week] = await Promise.all([run(OPENCODE, ['stats', '--days', '1']), run(OPENCODE, ['stats', '--days', '7'])]);
-  if (day.err && !day.out) return { error: String(day.err.message).slice(0, 200) };
-  return { today: parseStats(day.out), week: parseStats(week.out), limits: 'OpenCode Go plan limits are not exposed locally' };
+  let key;
+  try { key = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.local/share/opencode/auth.json'), 'utf8'))['opencode-go']?.key; } catch {}
+  let windows = null, limits = '';
+  if (!key) limits = 'Connect an OpenCode Go account to see its allowance.';
+  else try {
+    const response = await fetch('https://opencode.ai/inference/go/v1/usage', { headers: { Authorization: `Bearer ${key}` }, redirect: 'error', signal: AbortSignal.timeout(15000) });
+    if (!response.ok) limits = response.status === 401 || response.status === 403 ? 'OpenCode Go rejected the saved key. Reconnect the account to see usage.' : `OpenCode Go usage is unavailable (HTTP ${response.status}).`;
+    else {
+      const data = await response.json();
+      windows = ['rolling', 'weekly', 'monthly'].flatMap(name => {
+        const w = data.usage?.[name];
+        return w && Number.isFinite(w.percent) && w.percent >= 0 && w.percent <= 100 ? [{ name, usedPercent: w.percent, resetsAt: w.resetsAt ?? null }] : [];
+      });
+      if (!windows.length) limits = 'OpenCode Go returned no usage windows.';
+    }
+  } catch { limits = 'Could not reach OpenCode Go usage.'; }
+  return { today: parseStats(day.out), week: parseStats(week.out), windows, limits };
 }
 
 export async function cursor() {
