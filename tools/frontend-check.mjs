@@ -94,6 +94,8 @@ try {
         assert.equal(await page.locator('.home-metrics,.home-panel').count(), 0);
         const trigger = page.getByRole('button', { name: 'Model usage' });
         const drawer = page.locator('#home-usage');
+        await trigger.hover();
+        assert.equal(await trigger.evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(255, 255, 255)');
         assert.equal(await drawer.getAttribute('aria-hidden'), 'true');
         await trigger.click();
         await page.getByText('Example Freebuff').waitFor({ state: 'visible' });
