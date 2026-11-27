@@ -10,5 +10,5 @@
   "mergeEnabled": false,
   "reviewBotContext": "pr-review/ready-to-merge",
   "team": [],
-  "models": { "codex": "gpt-6.1-terra", "codexEffort": "high", "cursor": "composer-2.5", "opencode": "opencode-go/deepseek-v4.1-flash", "claude": "sonnet", "antigravity": "gemini-3.8-flash-medium" }
+  "models": { "codex": "gpt-6.1-terra", "codexEffort": "high", "cursor": "composer-2.5", "opencode": "opencode/deepseek-v4.1-flash-free", "claude": "sonnet", "antigravity": "gemini-3.8-flash-medium" }
 }
