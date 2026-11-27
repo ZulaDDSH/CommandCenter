@@ -45,7 +45,7 @@ PAGES.home=async el=>{
  try{
   const [t,ss,r,u,bd]=await Promise.all([j('/tasks'),j('/sessions'),j('/usage?p=route'),j('/usage?p=freebuff'),j('/board?json=1')]);
   if(tab!=='home')return;
-  const tasks=t?.tasks||[],run=tasks.filter(isRun).length,wait=tasks.filter(x=>x.status==='waiting').length,fail=tasks.filter(x=>x.status==='failed').length;
+  const tasks=t?.tasks||[],run=tasks.filter(isRun).length,wait=tasks.filter(x=>x.status==='waiting').length;
   const today=new Date().toDateString(),doneToday=tasks.filter(x=>x.status==='done'&&new Date(ts(x.endedAt)).toDateString()===today).length;
   const work=(Array.isArray(ss)?ss:[]).filter(s=>(s.live==='running'||s.live==='reported'||s.live==='recent')&&!s.archived).sort((a,b)=>ms(b.mtime)-ms(a.mtime));
   const bits=[];if(run)bits.push(plural(run,'task')+' running');if(wait)bits.push(wait+' waiting');if(work.length)bits.push(plural(work.length,'session')+' with recent activity');
@@ -55,7 +55,7 @@ PAGES.home=async el=>{
   const activity=(Array.isArray(ss)?ss:[]).filter(s=>s.id&&!s.archived).sort((a,b)=>ms(b.mtime)-ms(a.mtime)).slice(0,5);
   const statusLabel={running:'Running',reported:'In progress',recent:'Recent activity',finished:'Done',unknown:'Unknown'};
   const html='<div id="hm-root" class="tk home-page"><div class="cc-pagehead"><div><div class="cc-eyebrow">WORKSPACE / OVERVIEW</div><div class="tk-hello">Your command center</div><p class="cc-lead">'+esc(hello)+'</p></div><div class="cc-quick">'+btn('tab','Open Director','',' data-t="director"')+btn('tab','Browse sessions','',' data-t="sessions"')+'</div></div>'+health(t)
-   +'<div class="home-metrics"><div><span>Running</span><b>'+run+'</b><small>tasks in progress</small></div><div><span>Waiting</span><b>'+wait+'</b><small>tasks in queue</small></div><div><span>Done today</span><b>'+doneToday+'</b><small>completed tasks</small></div><div><span>Needs attention</span><b>'+fail+'</b><small>failed tasks</small></div></div>'
+   +'<div class="home-metrics"><div><span>Running</span><b>'+run+'</b><small>tasks in progress</small></div><div><span>Waiting</span><b>'+wait+'</b><small>tasks in queue</small></div><div><span>Done today</span><b>'+doneToday+'</b><small>completed tasks</small></div><div><span>Needs attention</span><b>'+att.length+'</b><small>tasks to review</small></div></div>'
    +'<div class="home-grid"><div class="home-main"><section class="home-panel"><div class="home-panel-head"><div><h2>Active tasks</h2><p>Work currently in progress</p></div>'+btn('tab','Open Director','',' data-t="director"')+'</div>'
    +(tasks.some(isRun)?'<div class="tk-rows">'+tasks.filter(isRun).slice(0,5).map(x=>'<button type="button" class="tk-row" data-tk="tab" data-t="director" data-id="'+esc(x.id)+'">'+badge(x.ranOn||x.provider)+'<span class="tk-rt">'+esc(x.title)+'</span><span class="home-state">'+esc(x.status)+'</span></button>').join('')+'</div>'+(run>5?'<div class="home-more">'+(run-5)+' more in Director</div>':''):'<div class="tk-empty">No tasks running.</div>')+'</section>'
    +'<section class="home-panel"><div class="home-panel-head"><div><h2>Sessions</h2><p>Latest activity and completion status</p></div>'+btn('tab','View sessions','',' data-t="sessions"')+'</div>'
