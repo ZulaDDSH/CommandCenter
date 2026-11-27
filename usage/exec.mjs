@@ -22,7 +22,7 @@ export function binCall(name, args) {
 
 export const cursorCall = args => { const [c, a] = cursorCmd(args); return binCall(c, a); };
 
-const LOGIN_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'CURSOR_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GENAI_API_KEY', 'AGY_ADC_AUTH'];
+const LOGIN_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'CURSOR_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GENAI_API_KEY', 'AGY_ADC_AUTH', 'CC_OPENCODE_USAGE_KEY'];
 export const childEnv = extra => Object.fromEntries(Object.entries({ ...process.env, ...extra }).filter(([k]) => !LOGIN_KEYS.includes(k.toUpperCase())));
 
 export function runCall(call, timeout = 60000) {

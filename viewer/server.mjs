@@ -13,15 +13,15 @@ import { sessionTaskResolver } from '../lib/session-origin.mjs';
 import * as tasks from '../lib/tasks.mjs';
 import * as setup from '../lib/setup.mjs';
 import { listModels } from '../lib/models.mjs';
-const REFRESH = { freebuff: 300000, fbmodels: 1800000, codex: 60000, opencode: 600000, cursor: 1800000, claude: 3600000, route: 300000 };
+const REFRESH = { freebuff: 300000, fbmodels: 1800000, codex: 60000, opencode: 600000, cursor: 1800000, claude: 300000, route: 300000 };
 const usage = {};
 function cachedUsage(name, fresh) {
   const u = usage[name] ??= { at: 0, busy: false, body: '{"loading":true}' };
-  if ((fresh || Date.now() - u.at > REFRESH[name]) && !u.busy) {
+  if ((fresh || Date.now() - u.at > (u.failed ? 30000 : REFRESH[name])) && !u.busy) {
     u.busy = true;
     (name === 'route' ? route() : providerUsage[name]())
-      .then(v => { u.body = JSON.stringify({ ...v, fetchedAt: Date.now() }); },
-            e => { u.body = JSON.stringify({ error: String(e?.message ?? e).slice(0, 200), fetchedAt: Date.now() }); })
+      .then(v => { u.failed = !!(v.error || (name === 'opencode' && v.limits)); u.body = JSON.stringify({ ...v, fetchedAt: Date.now() }); },
+            e => { u.failed = true; u.body = JSON.stringify({ error: String(e?.message ?? e).slice(0, 200), fetchedAt: Date.now() }); })
       .finally(() => { u.busy = false; u.at = Date.now(); });
   }
   return u.body;

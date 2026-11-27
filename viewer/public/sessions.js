@@ -9,19 +9,20 @@ const minsStr=m=>m>=60?Math.floor(m/60)+'h '+(m%60)+'m':m+'m';
 const oneLine=s=>String(s||'').replace(/\s+/g,' ').trim();
 const opened=new Set(),expanded=new Set(),selected=new Set();let bulkBusy=false,showArch=false,sessionProvider='all',sessionState='all',sessionQuery='',sessionPage=0,teamFilter='all',teamSearch='',teamDraft='';
 const SESSION_PAGE_SIZE=25,sessionKey=s=>JSON.stringify([s.provider,s.id]);
-let cur=null,timer=0,token=0,lastRaw='',opener=null,lastList=null,lastTasks=null,lastExtras=null;
+let cur=null,timer=0,token=0,lastRaw='',opener=null,lastList=null,lastTasks=null,lastExtras=null,viewMode='chat';
 
 function steps(x){const key=x.provider+':'+x.id+':';
  return x.steps.map((s,i)=>{const k=key+i;
+  if((s.k==='tool')!==(viewMode==='tools'))return '';
   if(s.k==='user')return '<div class="user">'+md(s.text)+'</div>';
   if(s.k==='text'){const t=s.text||'',long=(t.split('\n').length>6||t.length>600)&&!expanded.has(k);return '<div class="text'+(long?' long':'')+'" data-k="'+esc(k)+'">'+md(t)+'</div>'+(long?'<button type="button" class="text-expand" data-expand="'+esc(k)+'">Show more</button>':'')}
-  return '<details class="tool" data-k="'+esc(k)+'"'+(opened.has(k)?' open':'')+'><summary><span class="tag '+kind(s.name||'')+'">'+esc(s.name)+'</span><span class="cmd">'+esc(s.input)+'</span></summary><pre>'+esc(s.output||'(no output yet)')+'</pre></details>'}).join('')||'<div class="empty">No messages yet.</div>'}
+  return '<details class="tool" data-k="'+esc(k)+'"'+(opened.has(k)?' open':'')+'><summary><span class="tag '+kind(s.name||'')+'">'+esc(s.name)+'</span><span class="cmd">'+esc(s.input)+'</span></summary><pre>'+esc(s.output||'(no output yet)')+'</pre></details>'}).join('')||'<div class="empty">'+(viewMode==='tools'?'No tool calls yet.':'No messages yet.')+'</div>'}
 
-function render(x){cur.x=x;$('vact').hidden=false;$('varc').textContent=x.archived?'Unarchive':'Archive';const f=$('vfeed'),atBottom=f.scrollHeight-f.scrollTop-f.clientHeight<80,top=f.scrollTop,restoreFocus=keepFeedFocus(f);
- $('vtitle').textContent=x.title||x.id;
+function render(x){cur.x=x;$('vact').hidden=false;$('varc').textContent=x.archived?'Unarchive':'Archive';const f=$('vfeed'),atBottom=f.scrollHeight-f.scrollTop-f.clientHeight<80,top=f.scrollTop,restoreFocus=keepFeedFocus(f),toolFocus=f.contains(document.activeElement)?document.activeElement.closest('details.tool')?.dataset.k:null;
+ $('vtitle').textContent=x.title||x.id;$('vchat').classList.toggle('on',viewMode==='chat');$('vtools').classList.toggle('on',viewMode==='tools');$('vchat').setAttribute('aria-pressed',String(viewMode==='chat'));$('vtools').setAttribute('aria-pressed',String(viewMode==='tools'));$('vtools').textContent='Tool calls ('+x.steps.filter(s=>s.k==='tool').length+')';
  $('vmeta').innerHTML=[esc(x.provider),x.model&&esc(x.model),'<span title="'+esc(x.cwd)+'">'+esc(last2(x.cwd))+'</span>',dot(x.live||'idle',x.liveWhy),'history read from disk, the panel cannot stop or message it','last activity '+esc(recent(x.mtime))].filter(Boolean).join(' · ');
  f.innerHTML=steps(x);
- f.scrollTop=($('vfollow').checked&&atBottom)?f.scrollHeight:top;restoreFocus()}
+ f.scrollTop=($('vfollow').checked&&atBottom)?f.scrollHeight:top;restoreFocus();if(toolFocus)Array.from(f.querySelectorAll('details.tool')).find(t=>t.dataset.k===toolFocus)?.querySelector('summary')?.focus({preventScroll:true})}
 
 async function load(first){const t=token;let raw,ok;
  try{const r=await fetch('/session?p='+encodeURIComponent(cur.p)+'&id='+encodeURIComponent(cur.id));ok=r.ok;raw=await r.text()}catch(e){raw=null}
@@ -37,7 +38,7 @@ function close(){token++;clearTimeout(timer);cur=null;$('view').hidden=true;(ope
 
 window.openSession=(provider,id)=>{
  if($('view').hidden)opener=document.activeElement;
- token++;clearTimeout(timer);cur={p:provider,id};lastRaw='';$('vact').hidden=true;
+ token++;clearTimeout(timer);cur={p:provider,id};lastRaw='';viewMode='chat';opened.clear();$('vact').hidden=true;$('vchat').classList.add('on');$('vchat').setAttribute('aria-pressed','true');$('vtools').classList.remove('on');$('vtools').setAttribute('aria-pressed','false');$('vtools').textContent='Tool calls';
  $('vtitle').textContent='Loading…';$('vmeta').textContent='';$('vfeed').innerHTML='<div class="empty">Loading…</div>';
  $('view').hidden=false;$('vclose').focus();load(true)};
 
@@ -73,6 +74,8 @@ window.sessClick=(e,list,reload)=>{
  if(s)window.sessAct(p,id,b.dataset.a,s.title||id).then(ok=>ok&&reload())};
 
 $('vclose').onclick=close;
+$('vchat').onclick=()=>{if(cur?.x&&viewMode!=='chat'){viewMode='chat';render(cur.x)}};
+$('vtools').onclick=()=>{if(cur?.x&&viewMode!=='tools'){viewMode='tools';render(cur.x)}};
 $('view').onclick=e=>{if(e.target===$('view'))close()};
 document.addEventListener('keydown',e=>{const view=$('view');if(view.hidden)return;if(e.key==='Escape'){close();return}if(e.key!=='Tab')return;const items=[...view.querySelectorAll('button,input,select,textarea,a[href],summary,[tabindex]:not([tabindex="-1"])')].filter(x=>!x.disabled&&x.tabIndex!==-1&&x.getClientRects().length);if(!items.length)return;const first=items[0],last=items[items.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}});
 $('vfeed').addEventListener('toggle',e=>{const k=e.target.dataset?.k;if(k)e.target.open?opened.add(k):opened.delete(k)},true);

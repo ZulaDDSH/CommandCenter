@@ -19,6 +19,7 @@ jobs:
           node-version: '22'
       - run: node tools/data-root-check.mjs
       - run: node tools/session-route-check.mjs
+      - run: node tools/usage-check.mjs
       - run: node tools/codex-session-check.mjs
       - run: node tools/task-errors-check.mjs
       - run: node tools/concurrency-check.mjs

@@ -8,6 +8,7 @@
 .vh label{display:flex;gap:6px;align-items:center;cursor:pointer;flex:none}
 .vh .pill{flex:none}
 #vfeed{flex:1;overflow:auto;padding:18px 24px 40px;min-height:0}#vfeed pre{max-width:100%;overflow:auto}
+.session-view-nav{display:flex;gap:8px;padding:10px 18px;border-bottom:1px solid var(--line)}.session-view-nav .on{background:var(--panel2);border-color:var(--dim)}
 .srow{cursor:pointer}.srow:hover{background:rgba(255,255,255,.025)}
 .srow .st{max-width:min(640px,45vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.srow .st .m{font-weight:400;color:var(--dim);font-size:12px}
 .session-open{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}.session-open:hover{text-decoration:underline;color:var(--paper)}
