@@ -202,12 +202,13 @@ class SharedMcpMigrateTests(unittest.TestCase):
             ("f4-re-mcp", ["f4-original"], {"API_TOKEN": "codex-secret-f4"}),
             ("rea", ["rea-original"], {"API_KEY": "codex-secret-rea"}),
         ):
+            env_table = "{ " + ", ".join(f"{json.dumps(key)} = {json.dumps(value)}" for key, value in env.items()) + " }"
             codex_text += (
                 f"\n[mcp_servers.{name}]\n"
                 "enabled = false\n"
                 'command = "node"\n'
                 f"args = {json.dumps(args)}\n"
-                f"env = {json.dumps(env)}\n"
+                f"env = {env_table}\n"
             )
             stash_row = {
                 "id": f"stash-{name}",
