@@ -100,7 +100,7 @@ class SharedMcpAdapterTests(unittest.TestCase):
             candidate = path_dir / "sample.exe"
             candidate.write_bytes(Path(sys.executable).read_bytes())
             resolved = ADAPTER_MODULE.resolve_bare_exe("sample", [client_dir, path_dir], [python_dir, path_dir])
-            self.assertEqual(os.path.normcase(os.path.abspath(resolved)), os.path.normcase(str(candidate.resolve())))
+            self.assertTrue(os.path.samefile(resolved, candidate))
 
     @unittest.skipUnless(os.name == "nt", "Windows PATH search behavior")
     def test_bare_executable_rejects_application_directory_path_collision(self):
@@ -147,7 +147,7 @@ class SharedMcpAdapterTests(unittest.TestCase):
                 json.loads(result.stdout),
                 {"cwd": str(launch_cwd), "env": "inherited-value", "args": [argument]},
             )
-            self.assertNotIn("shell-spawned", result.stdout)
+            self.assertEqual(result.stdout.count("\n"), 1)
 
     @unittest.skipUnless(os.name == "nt", "Windows job object behavior")
     def test_server_and_grandchild_exit_when_client_dies(self):
