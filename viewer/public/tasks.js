@@ -48,23 +48,23 @@ PAGES.home=async el=>{
   const tasks=t?.tasks||[],run=tasks.filter(isRun).length,wait=tasks.filter(x=>x.status==='waiting').length,fail=tasks.filter(x=>x.status==='failed').length;
   const today=new Date().toDateString(),doneToday=tasks.filter(x=>x.status==='done'&&new Date(ts(x.endedAt)).toDateString()===today).length;
   const work=(Array.isArray(ss)?ss:[]).filter(s=>(s.live==='running'||s.live==='reported'||s.live==='recent')&&!s.archived).sort((a,b)=>ms(b.mtime)-ms(a.mtime));
-  const bits=[];if(run)bits.push(plural(run,'task')+' running');if(wait)bits.push(wait+' waiting');if(work.length)bits.push(plural(work.length,'agent')+' with recent activity');
-  const hello=bits.length?bits.join(', '):'All quiet. Nothing is running right now.';
-  const per=['freebuff','codex','cursor','opencode','claude','antigravity'].map(p=>[p,work.filter(s=>s.provider===p).length]).filter(x=>x[1]);
+  const bits=[];if(run)bits.push(plural(run,'task')+' running');if(wait)bits.push(wait+' waiting');if(work.length)bits.push(plural(work.length,'session')+' with recent activity');
+  const hello=bits.length?bits.join(', '):'No Command Center tasks are running.';
   const att=tasks.filter(x=>x.note&&(x.status==='failed'||x.status==='waiting'||isRun(x))).sort((a,b)=>(ts(b.endedAt)||ts(b.createdAt))-(ts(a.endedAt)||ts(a.createdAt)));
   const notes=(Array.isArray(bd)?bd:[]).slice(-3).reverse();
+  const activity=(Array.isArray(ss)?ss:[]).filter(s=>s.id&&!s.archived).sort((a,b)=>ms(b.mtime)-ms(a.mtime)).slice(0,5);
+  const statusLabel={running:'Running',reported:'In progress',recent:'Recent activity',finished:'Done',unknown:'Unknown'};
   const html='<div id="hm-root" class="tk home-page"><div class="cc-pagehead"><div><div class="cc-eyebrow">WORKSPACE / OVERVIEW</div><div class="tk-hello">Your command center</div><p class="cc-lead">'+esc(hello)+'</p></div><div class="cc-quick">'+btn('tab','Open Director','',' data-t="director"')+btn('tab','Browse sessions','',' data-t="sessions"')+'</div></div>'+health(t)
-   +'<div class="cards">'
-   +card('Tasks',String(run),'running',[wait+' waiting in line',doneToday+' finished today',fail+' failed'])
-   +card('Agents with recent activity',String(work.length),'',per.length?per.map(x=>esc(P[x[0]])+': '+x[1]):['No recent activity.'])
-   +routeCard(r)+hoursCard(u)+'</div>'
-   +(att.length?'<div class="tk-h">Needs a look</div>'+att.slice(0,5).map(x=>'<div class="tk-att"><div>'+dot(x.status)+'<b>'+esc(x.title)+'</b> <span class="m">'+esc(x.status)+(x.ranOn?' on '+esc(P[x.ranOn]||x.ranOn):'')+'</span></div><div class="tk-note">'+esc(x.note)+'</div><div>'+(x.status==='failed'&&!x.parent?btn('retry','Retry',x.id)+' ':'')+btn('tab','Open Director','',' data-t="director"')+'</div></div>').join('')+(att.length>5?'<div class="m">'+(att.length-5)+' more on the Director tab.</div>':''):'')
-   +(tasks.some(isRun)?'<div class="tk-h">Tasks running</div><div class="tk-rows">'+tasks.filter(isRun).slice(0,20).map(x=>'<button type="button" class="tk-row" data-tk="tab" data-t="director" data-id="'+esc(x.id)+'">'+badge(x.ranOn||x.provider)+'<span class="tk-rt">'+(x.role==='orchestrator'?'Director: ':'')+esc(x.title)+'</span><span class="m">'+esc(x.model||x.modelPref||'')+'</span><span class="m">'+(x.expiresAt?'<b>'+esc(left(x.expiresAt))+' left</b>':x.ranOn==='freebuff'?'no hour yet':'')+'</span></button>').join('')+'</div>':'')
-   +'<div class="tk-h">Recent activity (last 2 minutes)</div>'
-   +(work.length?'<div class="tk-rows">'+work.slice(0,40).map(s=>'<button type="button" class="tk-row" data-tk="open" data-p="'+esc(s.provider)+'" data-id="'+esc(s.id)+'">'+badge(s.provider)+'<span class="tk-rt">'+esc(String(s.title||s.id).slice(0,90))+'</span><span class="m tk-rf" title="'+esc(s.cwd||'')+'">'+esc(short(s.cwd))+'</span><span class="m">'+(ms(s.mtime)?ago(ms(s.mtime)):'')+'</span></button>').join('')+'</div>':'<div class="tk-empty">No agent has written in the last 2 minutes.</div>')
-   +'<div class="tk-h">Latest board notes '+btn('tab','Open Director','',' data-t="director"')+'</div>'
-   +(notes.length?notes.map(n=>'<div class="note"><div class="m"><b>'+esc(n.from)+'</b> · '+when(n.at)+'</div><div class="t">'+md(String(n.text).slice(0,300)+(String(n.text).length>300?'…':''))+'</div></div>').join(''):'<div class="tk-empty">No notes yet.</div>')
-   +'</div>';
+   +'<div class="home-metrics"><div><span>Running</span><b>'+run+'</b><small>tasks in progress</small></div><div><span>Waiting</span><b>'+wait+'</b><small>tasks in queue</small></div><div><span>Done today</span><b>'+doneToday+'</b><small>completed tasks</small></div><div><span>Needs attention</span><b>'+fail+'</b><small>failed tasks</small></div></div>'
+   +'<div class="home-grid"><div class="home-main"><section class="home-panel"><div class="home-panel-head"><div><h2>Active tasks</h2><p>Work currently in progress</p></div>'+btn('tab','Open Director','',' data-t="director"')+'</div>'
+   +(tasks.some(isRun)?'<div class="tk-rows">'+tasks.filter(isRun).slice(0,5).map(x=>'<button type="button" class="tk-row" data-tk="tab" data-t="director" data-id="'+esc(x.id)+'">'+badge(x.ranOn||x.provider)+'<span class="tk-rt">'+esc(x.title)+'</span><span class="home-state">'+esc(x.status)+'</span></button>').join('')+'</div>'+(run>5?'<div class="home-more">'+(run-5)+' more in Director</div>':''):'<div class="tk-empty">No tasks running.</div>')+'</section>'
+   +'<section class="home-panel"><div class="home-panel-head"><div><h2>Sessions</h2><p>Latest activity and completion status</p></div>'+btn('tab','View sessions','',' data-t="sessions"')+'</div>'
+   +(activity.length?'<div class="tk-rows">'+activity.map(s=>'<button type="button" class="tk-row" data-tk="open" data-p="'+esc(s.provider)+'" data-id="'+esc(s.id)+'">'+badge(s.provider)+'<span class="tk-rt">'+esc(s.title||s.id)+'</span><span class="home-state '+(s.live==='finished'?'is-done':'')+'">'+esc(statusLabel[s.live]||'Unknown')+'</span></button>').join('')+'</div>':'<div class="tk-empty">No sessions yet.</div>')+'</section></div>'
+   +'<div class="home-side"><section class="home-panel"><div class="home-panel-head"><div><h2>Needs attention</h2><p>'+att.length+' task'+(att.length===1?'':'s')+' to review</p></div>'+btn('tab','View all','',' data-t="director"')+'</div>'
+   +(att.length?att.slice(0,3).map(x=>'<div class="home-alert"><div>'+dot(x.status)+'<b>'+esc(x.title)+'</b></div><div class="home-alert-note">'+esc(x.note)+'</div><div>'+(x.status==='failed'&&!x.parent?btn('retry','Retry',x.id)+' ':'')+btn('tab','Open Director','',' data-t="director"')+'</div></div>').join(''):'<div class="tk-empty">Nothing needs attention.</div>')+'</section>'
+   +'<section class="home-panel"><div class="home-panel-head"><div><h2>Workspace</h2><p>Routing and available hours</p></div></div><div class="home-resources">'+routeCard(r)+hoursCard(u)+'</div></section>'
+   +'<section class="home-panel"><div class="home-panel-head"><div><h2>Team notes</h2><p>Latest updates</p></div></div>'
+   +(notes.length?notes.slice(0,2).map(n=>'<div class="home-note"><b>'+esc(n.from)+'</b><span class="m"> '+esc(when(n.at))+'</span><div>'+md(String(n.text).slice(0,180))+'</div></div>').join(''):'<div class="tk-empty">No notes yet.</div>')+'</section></div></div></div>';
   put(el,'home','hm-root',html);
  }finally{busy.home=0}};
 
@@ -147,7 +147,7 @@ document.addEventListener('click',async e=>{
  const a=b.dataset.tk,id=b.dataset.id;
  if(a==='tab')return setTab(b.dataset.t);
  if(a==='open'){
-  if(b.dataset.p==='freebuff'){setTab('freebuff');location.hash=id}else window.openSession?.(b.dataset.p,id);
+  window.openSession?.(b.dataset.p,id);
   return}
  if(a==='view'){
   if(open.has(id))open.delete(id);else{open.add(id);delete views[id]}

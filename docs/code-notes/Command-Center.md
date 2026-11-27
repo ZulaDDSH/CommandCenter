@@ -725,3 +725,6 @@ The limits check is a pure unit run on a throwaway `CC_ROOT`. Its sections cover
 
 
 `lib/concurrency.mjs:modelSlots`, `lib/routes/setup.mjs:validate`, and `lib/director.mjs:setMaxLive`: Codex, Cursor, OpenCode, and Claude limits now apply per model, including existing saved provider limits. Freebuff retains a shared CLI limit and Antigravity retains its single-task limit. Existing goals keep their current live-task limits until changed in Director; the global task guard remains 60.
+
+
+`lib/session-meta.mjs:freebuffEnded` treats a tracked task status as authoritative for its Freebuff session. An untracked session uses its report as completion evidence; a running retry or failed task is not marked done merely because an older report exists. The list, session detail, and Director discovery apply the same rule. `lib/session-meta.mjs:freebuffBusy` protects a running retry from deletion even when an older report exists.

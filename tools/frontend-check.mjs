@@ -90,6 +90,11 @@ try {
       await page.screenshot({ path: `frontend-artifacts/${width}-${tab}.png` });
       const overflow = await page.locator('#prov').evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
       assert.ok(overflow.scroll <= overflow.width + 1, `${tab} overflows at ${width}px: ${JSON.stringify(overflow)}`);
+      if (tab === 'home') {
+        const homeSessions = page.locator('.home-main .home-panel').nth(1);
+        assert.equal(await homeSessions.locator('.tk-row').count(), 5);
+        await homeSessions.getByText('Done', { exact: true }).first().waitFor({ state: 'visible' });
+      }
       if (tab === 'director') {
         await page.locator('[data-panel="models"]').click();
         await page.locator('#dr-models option').first().waitFor({ state: 'attached' });

@@ -113,6 +113,11 @@ const setup = limits => { const g = mk(limits), d = dir(g); D.linkTask(g.id, d.i
 
 {
   const M = await import(pathToFileURL(path.join(repo, 'lib', 'session-meta.mjs')).href);
+  must('Freebuff report marks an untracked session done', M.freebuffEnded({ report: 'report' }, null));
+  must('a completed task is done without a report', M.freebuffEnded({}, { status: 'done' }));
+  must('a stale report cannot complete a running retry', !M.freebuffEnded({ report: 'old report' }, { status: 'running' }));
+  must('a running retry remains protected from deletion despite an older report', M.freebuffBusy({ archived: true }, { status: 'running' }));
+  must('a report does not turn a failed task into a success', !M.freebuffEnded({ report: 'report' }, { status: 'failed' }));
   const now = 1e12, alive = () => true, dead = () => false;
   const v = (r, isAlive = alive) => M.liveOf({ mtime: now - 1000, ...r }, now, isAlive).live;
   must('status: a live process with a fresh write is running', v({ pid: 42 }) === 'running');
