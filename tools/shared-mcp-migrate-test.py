@@ -332,14 +332,15 @@ class SharedMcpMigrateTests(unittest.TestCase):
             stash_bytes = paths["stash"].read_bytes()
             stash_after = json.loads(stash_bytes.decode("utf-8-sig"))
             expected_stash = copy.deepcopy(stash_before)
-            for name in ("f4-re-mcp", "rea"):
+            for name in ("gimp", "reevesagents", "f4-re-mcp", "rea"):
                 codex_entry = codex["mcp_servers"][name]
                 self.assertEqual(codex_entry["command"], sys.executable)
                 self.assertEqual(codex_entry["args"], [str(paths["adapter"]), name])
-                self.assertEqual(codex_entry["env"], originals["codex_env"][name])
                 row = next(item for item in expected_stash["entries"] if item.get("name") == name)
                 row["cfg"]["command"] = sys.executable
                 row["cfg"]["args"] = [str(paths["adapter"]), name]
+                if name in ("f4-re-mcp", "rea"):
+                    self.assertEqual(codex_entry["env"], originals["codex_env"][name])
             self.assertEqual(stash_after, expected_stash)
             registry_bytes = paths["registry"].read_bytes()
             registry_text = registry_bytes.decode("utf-8")
