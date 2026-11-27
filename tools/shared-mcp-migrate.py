@@ -247,7 +247,7 @@ def update_toml(data, ids, adapter, python):
             if key in seen:
                 raise ValueError(f"Codex {name} has duplicate {key} keys.")
             seen.add(key)
-            value = json.dumps(python if key == "command" else [python, str(adapter), name], ensure_ascii=False) if key == "command" else json.dumps([python, str(adapter), name])
+            value = json.dumps(python if key == "command" else [str(adapter), name], ensure_ascii=False)
             comment = ""
             raw = m.group(4)
             if "#" in raw:

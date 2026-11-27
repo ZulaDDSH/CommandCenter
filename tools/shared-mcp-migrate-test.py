@@ -339,6 +339,7 @@ class SharedMcpMigrateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             private = Path(directory) / "private-state"
             private.mkdir()
+            MIGRATE.secure_private_dir(private)
             subprocess.run(
                 [str(MIGRATE.system_tool("icacls.exe")), str(private), "/grant:r", "*S-1-1-0:(OI)(CI)M"],
                 check=True,
@@ -346,29 +347,10 @@ class SharedMcpMigrateTests(unittest.TestCase):
                 text=True,
                 timeout=10,
             )
-            before = self.acl_sddl(private)
-            self.assertTrue(";;;WD)" in before or ";;;S-1-1-0)" in before)
+            with self.assertRaisesRegex(RuntimeError, "unsupported principal: S-1-1-0"):
+                MIGRATE.validate_config_acl(private)
             MIGRATE.secure_private_dir(private)
-            after = self.acl_sddl(private)
-            self.assertNotIn(";;;WD)", after)
-            self.assertNotIn(";;;S-1-1-0)", after)
-
-    def acl_sddl(self, directory):
-        command = (
-            "$ErrorActionPreference = 'Stop'; "
-            "$acl = Get-Acl -LiteralPath $env:MIGRATION_TEST_ACL_PATH; "
-            "if ($null -eq $acl) { throw 'Could not read directory ACL.' }; "
-            "$acl.Sddl"
-        )
-        result = subprocess.run(
-            [str(Path(os.environ["SystemRoot"]) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"), "-NoProfile", "-NonInteractive", "-Command", command],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env={**os.environ, "MIGRATION_TEST_ACL_PATH": str(directory)},
-        )
-        return result.stdout.strip()
+            MIGRATE.validate_config_acl(private)
 
 
 if __name__ == "__main__":
