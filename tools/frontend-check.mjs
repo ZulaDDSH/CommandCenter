@@ -12,13 +12,15 @@ const setup = { config, providers, root: '/workspace', prereqs: { runtime: { ok:
 const now = Date.now(), stamp = new Date(now).toISOString();
 const task = { id: 'example-task', title: 'Director task with a readable title', status: 'cancelled', role: 'orchestrator', kind: 'code', provider: 'codex', ranOn: 'codex', model: 'example-model', cwd: '/workspace/git/example-task', createdAt: stamp, startedAt: stamp, endedAt: stamp, note: 'Stopped with its goal.' };
 const session = { id: 'example-session', provider: 'codex', title: 'Example session', model: 'example-model', cwd: '/workspace/project', mtime: now, live: 'recent', liveWhy: 'Recent activity', archived: false };
+const sessions = [session, ...Array.from({ length: 26 }, (_, i) => ({ ...session, id: `finished-${i}`, title: `Finished session ${i}`, live: 'finished', mtime: now - i - 1000 }))];
+const pullRequest = { number: 12, title: 'A pull request with a descriptive title', url: 'https://example.com/pr/12', head: 'example-branch', headSha: '1234567', headShaFull: '123456789', evidence: { ci: 'passing', review: 'approved' }, ci: { state: 'passing', pass: 1, fail: 0, pending: 0 }, updatedAt: stamp };
 const reply = pathname => ({
-  '/api': [], '/setup': setup, '/setup/folders': { repos: [] }, '/models': {}, '/board': [],
+  '/api': [], '/setup': setup, '/setup/folders': { repos: [] }, '/models': { codex: [{ id: 'example-model', name: 'Example Model' }] }, '/board': [],
   '/tasks': { tasks: [task], dispatcher: { lastTick: now } },
-  '/director': { goals: [], needsYou: [], dispatcher: { lastTick: now }, config: {}, machines: null, github: { prs: [] } },
+  '/director': { goals: [], needsYou: [], dispatcher: { lastTick: now }, config: {}, machines: null, github: { repo: 'example/repo', at: stamp, prs: [pullRequest] } },
   '/orch': { orchestrator: { mode: 'orchestrated', provider: 'codex' }, team: [], workerModels: {}, efforts: { codex: ['low', 'high'] } },
   '/budget': { providers: { codex: { enabled: true, installed: true, running: 0, max: 2 } } },
-  '/sessions': [session], '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }] },
+  '/sessions': sessions, '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }] },
   '/archive/sessions': [{ ...session, archived: true }], '/ext/list': { files: [], stash: { ok: true }, rows: [{ section: 'hooks', id: 'example-hook', rev: '1', on: true, name: 'Example hook', app: 'Codex', what: 'Runs before a tool starts.', source: 'Example settings', path: '/workspace/settings' }] },
   '/debug': [{ group: 'System', name: 'Example', ok: false, detail: 'Could not read /workspace/example-with-a-long-name/configuration.json', fix: 'Check the example configuration.' }],
   '/spawn-check': { clis: [], max: 1, roles: {} },
@@ -62,8 +64,20 @@ try {
       const overflow = await page.locator('#prov').evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
       assert.ok(overflow.scroll <= overflow.width + 1, `${tab} overflows at ${width}px: ${JSON.stringify(overflow)}`);
       if (tab === 'director') {
+        await page.locator('[data-panel="models"]').click();
+        await page.locator('#dr-models option').first().waitFor({ state: 'attached' });
+        await page.locator('#dr-model').focus();
+        await page.locator('#dr-models-menu').waitFor({ state: 'visible' });
+        await page.keyboard.press('Escape');
+        await page.locator('[data-panel="advanced"]').click();
+        const prs = page.locator('#dr-pr-table');
+        await prs.waitFor({ state: 'visible' });
+        assert.equal(await prs.getByText(pullRequest.title).count(), 1);
+        const settings = await page.locator('#prov').evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
+        assert.ok(settings.scroll <= settings.width + 1, `Director settings overflow at ${width}px: ${JSON.stringify(settings)}`);
+        await page.screenshot({ path: `frontend-artifacts/${width}-director-settings.png` });
         await page.locator('[data-panel="tasks"]').click();
-        const table = page.locator('.tk-table-wrap');
+        const table = page.locator('#tk-list .tk-table-wrap');
         await table.waitFor({ state: 'visible' });
         assert.equal(await table.getByText(task.title).count(), 1, 'Finished task must appear in the task table');
         await table.screenshot({ path: `frontend-artifacts/${width}-tasks.png` });
@@ -78,6 +92,14 @@ try {
         }
       }
       if (tab === 'sessions') {
+        await page.locator('#session-state').selectOption('finished');
+        assert.match(await page.locator('.sess-all .archive-pager span').innerText(), /26 matching · page 1 of 2/);
+        await page.locator('[data-session-page="next"]').click();
+        assert.match(await page.locator('.sess-all .archive-pager span').innerText(), /page 2 of 2/);
+        await page.locator('#session-state').selectOption('recent');
+        await page.locator('#session-search').fill('no matching session');
+        await page.getByText('No sessions match these filters.').waitFor({ state: 'visible' });
+        await page.locator('#session-search').fill('Example session');
         await page.locator('.session-open').first().click();
         await page.getByRole('dialog').waitFor({ state: 'visible' });
         assert.equal(await page.evaluate(() => document.activeElement.id), 'vclose');
@@ -86,6 +108,26 @@ try {
         await page.getByRole('button', { name: 'Show more' }).click();
         await page.keyboard.press('Escape');
         assert.equal(await page.getByRole('dialog').isVisible(), false);
+      }
+      if (tab === 'archive') {
+        await page.locator('.asearch').fill('no matching archive');
+        await page.getByText('Nothing matches your search.').waitFor({ state: 'visible' });
+        await page.locator('.asearch').fill('Example session');
+        await page.locator('.arow summary').first().click();
+        await page.locator('.arow .aopen').first().waitFor({ state: 'visible' });
+      }
+      if (tab === 'ext') {
+        await page.locator('#xq').fill('no matching hook');
+        await page.getByText('Nothing matches your search.').first().waitFor({ state: 'visible' });
+      }
+      if (tab === 'guide') {
+        await page.locator('[data-go="pg-s-tabs"]').click();
+        assert.equal(await page.locator('#pg-s-tabs').evaluate(el => el.open), true);
+      }
+      if (tab === 'setup') {
+        await page.getByText('Project & limits').click();
+        await page.getByLabel('Project folder').waitFor({ state: 'visible' });
+        await page.screenshot({ path: `frontend-artifacts/${width}-setup-project.png` });
       }
     }
     assert.deepEqual(errors, [], `Page errors at ${width}px`);

@@ -34,13 +34,13 @@ function ghCard(g){
  if(g.error)return '<div class="tk-warn">'+esc(g.error)+'</div>';
  if(!g.prs.length)return '<div class="tk-empty">No open pull requests in '+esc(g.repo||'this repository')+'.</div>';
  return '<div class="m">'+esc(g.repo)+' · read '+when(g.at)+' · <button class="pill" data-d="gh-refresh">Refresh</button></div>'
-  +'<table class="ss tk-table"><thead><tr><th>PR</th><th>Head</th><th>CI</th><th>Review</th><th>Updated</th><th></th></tr></thead><tbody>'
+  +'<div class="tk-scroll-hint">Scroll horizontally to see all pull request details.</div><div id="dr-pr-table" class="tk-table-wrap" tabindex="0" role="region" aria-label="Pull requests"><table class="ss tk-table"><thead><tr><th>PR</th><th>Head</th><th>CI</th><th>Review</th><th>Updated</th><th></th></tr></thead><tbody>'
   +g.prs.map(p=>'<tr><td><a href="'+esc(p.url)+'" target="_blank" rel="noopener">#'+esc(p.number)+'</a> '+esc(p.title)+(p.draft?' <span class="m">draft</span>':'')+'</td>'
    +'<td class="m">'+esc(p.head)+'<div>'+esc(p.headSha||'?')+'</div></td>'
    +'<td>'+pill(p.evidence.ci,p.ci.state==='passing'?'ok':p.ci.state==='failing'?'bad':'warn')+'<div class="m">'+p.ci.pass+' pass · '+p.ci.fail+' fail · '+p.ci.pending+' running</div></td>'
    +'<td class="m">'+esc(p.evidence.review)+'</td><td class="m">'+when(p.updatedAt)+'</td>'
    +'<td><button class="pill" data-d="approve-merge" data-n="'+esc(p.number)+'" data-repo="'+esc(g.repo||'')+'" data-sha="'+esc(p.headShaFull||'')+'">Approve merge</button></td></tr>').join('')
-  +'</tbody></table>'
+  +'</tbody></table></div>'
   +'<div class="m">Read from GitHub: heads, review decision and public CI only. Merged is read from the PR state; real-data and in-game verification are never inferred from CI and are not shown as done.</div>';
 }
 
@@ -160,7 +160,7 @@ function build(){
 
 const KEEP=['dr-text','dr-dir','dr-max','dr-min','dr-pri','dr-mname','dr-murl','dr-model'];
 function keep(){
- const k={vals:{},focus:null,lists:[...document.querySelectorAll('.dr-tl')].map(x=>x.scrollTop)};
+ const k={vals:{},focus:null,lists:[...document.querySelectorAll('.dr-tl')].map(x=>x.scrollTop),prLeft:$('dr-pr-table')?.scrollLeft||0};
  for(const id of KEEP){const x=$(id);if(x)k.vals[id]=x.value}
  const f=document.activeElement,el=$('prov');
  if(f&&f.id&&el&&el.contains(f))k.focus={id:f.id,s:f.selectionStart,e:f.selectionEnd};
@@ -175,7 +175,8 @@ function restore(k){
  for(const p of tasksEl.querySelectorAll('pre[data-k]')){const o=k.logs&&k.logs[p.dataset.k];if(o)p.scrollTop=o[1]?p.scrollHeight:o[0]}
  const th=$('dr-thread');if(th)th.scrollTop=!k.th||k.th.bottom||stick?th.scrollHeight:k.th.top;
  stick=false;
- if(k.focus){const x=$(k.focus.id);if(x){x.focus();try{x.setSelectionRange(k.focus.s,k.focus.e)}catch{}}}}
+ if(k.focus){const x=$(k.focus.id);if(x){x.focus();try{x.setSelectionRange(k.focus.s,k.focus.e)}catch{}}}
+ const pr=$('dr-pr-table');if(pr)pr.scrollLeft=k.prLeft}
 
 function draw(force){
  const el=$('prov');if(!el||tab!=='director')return;
