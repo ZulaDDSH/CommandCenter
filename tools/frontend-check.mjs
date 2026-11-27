@@ -98,6 +98,7 @@ try {
         await trigger.click();
         await page.getByText('Example Freebuff').waitFor({ state: 'visible' });
         await page.getByText('6 h estimated').waitFor({ state: 'visible' });
+        await page.screenshot({ path: `frontend-artifacts/${width}-home-usage.png` });
         assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
         const widthInfo = await drawer.evaluate(el => ({ width: el.getBoundingClientRect().width, viewport: innerWidth }));
         assert.ok(widthInfo.width <= widthInfo.viewport, 'Usage drawer must fit the viewport');
