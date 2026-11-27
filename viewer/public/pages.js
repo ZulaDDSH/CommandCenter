@@ -336,9 +336,7 @@ function guideSections(s) {
     ['tabs', 'The tabs', `<ul class="pg-dl">
 <li><b>Home</b> an overview of all the tools.</li>
 <li><b>Director</b> the one place for work, a chat with your director. Pick the director model, tick the models it may use and how hard each thinks, then say what you want done. It plans the work, hands the parts to agents, approves their sub-tasks, checks their reports and tells you what happened. Everything reports to it. Below the chat: what it handed out, what needs you, the task tree (stop or retry), the team board the agents write, the budget, and the model each tool uses by default.</li>
-<li><b>Freebuff</b> live Freebuff sessions, hours left today, the model picker and what the next task will do.</li>
-<li><b>Codex, Cursor, OpenCode</b> usage for that tool, its sessions, and Log in, Log out and Refresh buttons.</li>
-<li><b>Claude</b> whether Claude Code is installed and signed in, a link to its usage page, and its sessions. It does not start Claude.</li>
+<li><b>Sessions</b> one list of every agent session (Freebuff, Codex, Cursor, OpenCode, Claude): who, what it is doing, where, when it last moved. Click a row to read it. Click a Freebuff row for the live Freebuff view with the model picker.</li>
 <li><b>Archive</b> finished sessions (the ones that wrote a report), so the live lists stay short.</li>
 <li><b>Hooks &amp; MCP</b> every hook, MCP server and plugin on this PC for your AI tools, with switches. Each change keeps a backup of the file it touches. Restart the tool for a change to apply.</li>
 <li><b>Guide</b> this page. Part 1 is for you. Part 2 is written for AI agents.</li>
@@ -367,11 +365,11 @@ ${on.length ? `<div class="pg-ex"><b>Example: you add 5 coding tasks at once</b>
 <p>${waiting ? `If you add 3 more straight away, ${waiting} of them wait, because every tool is at its limit. ` : ''}A waiting task shows its reason on the Director tab, for example "codex: ${esc(mp.codex)} of ${esc(mp.codex)} allowed tasks are running." Every 5 seconds it tries again. As soon as a slot frees up, or a Freebuff CLI becomes idle or finishes starting, the next waiting task starts. An idle Freebuff CLI is reused with a fresh chat.</p>
 <p class="pg-hint">This assumes each tool is signed in, has room, and Freebuff has hours. The Director tab always shows the real reason.</p></div>` : '<p class="pg-hint">No tool is turned on yet. Open Setup and turn one on.</p>'}`],
     ['kinds', 'Task kinds', `<p>Every task has a kind. For Freebuff it picks the model.</p>
-<ul><li><b>Coding</b> (<code>[code]</code>, the default): the model chosen on the Freebuff tab, usually DeepSeek. It costs hours. When less than 2 hours of it are left, Beam codes instead.</li>
+<ul><li><b>Coding</b> (<code>[code]</code>, the default): the model chosen in the Freebuff view, usually DeepSeek. It costs hours. When less than 2 hours of it are left, Beam codes instead.</li>
 <li><b>Small coding</b> (<code>[light]</code>): Beam. Free. Good for small, clear changes.</li>
 <li><b>Read only</b> (<code>[read]</code>): Solar Pro. Free. For exploring, summaries and reviews. The task is told not to change any file. Codex runs it in a read-only sandbox.</li></ul>
 <p>Small and read-only tasks try Freebuff first because it is free, then the other tools in the order Codex, Cursor, OpenCode.</p>`],
-    ['hours', 'Freebuff hours', `<p>Freebuff gives you a number of hours each day. They reset at the time shown in the Freebuff tab.</p>
+    ['hours', 'Freebuff hours', `<p>Freebuff gives you a number of hours each day. They reset at the time shown in the Freebuff view.</p>
 <ul><li>DeepSeek costs hours, usually 2 hours of your balance for each hour of work.</li><li>Beam and Solar Pro are free.</li>
 <li>An open CLI holds its hours until its time runs out, even while idle. That is why the panel counts running CLIs before it starts another.</li></ul>`],
     ['board', 'The team board', `<p>A shared notepad for every agent. Before a task starts, each agent is told to read it. While it works it posts what others need: a file map, a finding, a blocker, a line when done. You can read it on the Director tab. Only the agents write to it.</p>
@@ -381,10 +379,10 @@ ${on.length ? `<div class="pg-ex"><b>Example: you add 5 coding tasks at once</b>
 <ul><li><code>pty.js</code> runs one Freebuff CLI per task, waits 10 seconds for it to start, and runs <code>/compact</code> by itself at 150k tokens.</li>
 <li><code>adapters.js</code> gives Cursor and Codex 30 seconds to answer, so they do not time out too early.</li></ul>
 <p>Installing or updating the relay writes the original files back. Press <b>Apply patches</b> in the Relay card on the Setup tab. It says "patched" or "already patched", and only patches the known 1.1.0 original. Then <b>restart the relay MCP server</b> (restart Claude Code) so it loads the new files.</p>`],
-    ['watch', 'Watching sessions', `<p>On the Codex, Cursor and OpenCode tabs, click a session to see its steps: what it said, the commands it ran and what came back. Freebuff sessions are in the list on the Freebuff tab. Use this when a task looks stuck.</p>`],
+    ['watch', 'Watching sessions', `<p>The Sessions tab lists every agent session (Freebuff, Codex, Cursor, OpenCode, Claude) and what it is doing. Click a row to see its steps: what it said, the commands it ran and what came back. Use this when a task looks stuck.</p>`],
     ['fix', 'Troubleshooting', `<p>Start with the <b>Debug</b> tab. It runs every check and shows the fix next to each failure. Common ones:</p>
 <ul><li><b>Not signed in</b>: use the tool's Log in button (or its card on Setup). A terminal opens; follow it.</li>
-<li><b>Usage unreadable</b>: press Refresh usage on that tab. This does not mean the tool ran out, only that the panel could not read it.</li>
+<li><b>Usage unreadable</b>: check the Debug tab for the reason. This does not mean the tool ran out, only that the panel could not read it.</li>
 <li><b>Dispatcher stopped</b>: the queue is not moving. Restart the panel with the Command Center shortcut or <code>start.ps1</code>.</li>
 <li><b>Patch not applied</b>: press Apply patches in the Relay card, then restart the relay MCP server.</li>
 <li><b>A task waits for no clear reason</b>: read its reason on the Director tab. Usually a limit is full or hours are low.</li></ul>`],

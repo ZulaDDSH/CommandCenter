@@ -251,7 +251,7 @@ process.on('uncaughtException', e => console.error(`uncaught: ${e.stack ?? e}`))
 let sessCache = { at: 0, body: '[]' };
 function allSessions() {
   if (Date.now() - sessCache.at < 15000) return sessCache.body;
-  const out = decorate('freebuff', loadSessions().filter(s => !s.archived).map(s => ({ provider: 'freebuff', id: s.slug, title: s.title ?? s.slug, cwd: worktree(s.slug), mtime: s.mtime, state: !s.queued && Date.now() - s.mtime < 120000 ? 'working' : 'idle' })));
+  const out = decorate('freebuff', loadSessions().filter(s => !s.archived).map(s => ({ provider: 'freebuff', id: s.slug, title: s.title ?? s.slug, cwd: worktree(s.slug), mtime: s.mtime, state: !s.queued && Date.now() - s.mtime < 120000 ? 'working' : !s.expiresAt && Date.now() - s.mtime > 72e5 ? 'done' : 'idle' })));
   for (const [p, fn] of Object.entries(sessionLists)) {
     if (!config().providers[p]) continue;
     try { out.push(...fn(15)); } catch (e) { out.push({ provider: p, id: '', title: `Could not read ${p} sessions: ${e.message}`, state: 'done', mtime: 0 }); }

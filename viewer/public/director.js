@@ -5,7 +5,7 @@ const PR={1:'P1 highest',2:'P2 high',3:'P3 normal',4:'P4 low',5:'P5 lowest'};
 const LIVE=['waiting','starting','running'];
 const SAY=x=>x==='running'?'working':x;
 const CLS={done:'ok',running:'stage-working',starting:'stage-working',failed:'bad',interrupted:'warn'};
-let d=null,busy=0,saving=0,msg='',err='',advOpen=false,setOpen=true,curId='',orchGen=0,setup=null,setupAt=0,models=null,modelsAt=0,orch=null,budget=null,board=null,stick=true,tkOpen=false,bdOpen=false,buOpen=false;
+let d=null,busy=0,saving=0,msg='',err='',advOpen=false,setOpen=false,curId='',orchGen=0,setup=null,setupAt=0,models=null,modelsAt=0,orch=null,budget=null,board=null,stick=true,tkOpen=false,bdOpen=false,buOpen=false;
 const tasksEl=document.createElement('div');tasksEl.id='dr-tasks';
 const NAMES={freebuff:'Freebuff',codex:'Codex',cursor:'Cursor',opencode:'OpenCode',claude:'Claude',antigravity:'Antigravity'};
 const ORDER=['freebuff','codex','cursor','opencode','claude','antigravity'];
@@ -146,12 +146,10 @@ function build(){
  h+='<details id="dr-bd" class="dr-ev"'+(bdOpen?' open':'')+'><summary>Team board (the agents write here)</summary>'+boardHtml()+'</details>';
  h+='<details id="dr-bu" class="dr-ev"'+(buOpen?' open':'')+'><summary>Budget right now</summary>'+(budget&&budget.providers?'<div class="cards">'+money(budget)+'</div>':'<div class="empty">Budget not available.</div>')+'</details>';
  const ghErr=d.github&&d.github.error;
- h+='<details id="dr-adv" class="dr-ev"'+(advOpen?' open':'')+'><summary>Advanced: folder, limits, machines, pull requests, other sessions</summary>'
+ h+='<details id="dr-adv" class="dr-ev"'+(advOpen?' open':'')+'><summary>Advanced: folder, limits, machines, pull requests</summary>'
   +'<div class="dr-form"><div class="hl">Where the director works (used by a new chat)</div><div class="dr-grid"><label>Folder<input id="dr-dir" value="'+esc((d.config&&d.config.projectDir)||'')+'"></label><label>Live tasks allowed<input id="dr-max" type="number" min="1" max="12" value="4"></label><label>Task minutes<input id="dr-min" type="number" min="5" max="1440" value="120"></label><label>Priority<select id="dr-pri">'+[1,2,3,4,5].map(n=>'<option value="'+n+'"'+(n===3?' selected':'')+'>'+PR[n]+'</option>').join('')+'</select></label></div></div>'
   +'<div class="tk-h">Machines</div>'+machinesCard(d.machines)
   +'<div class="tk-h">Pull requests and CI</div>'+(ghErr?'<div class="tk-warn">'+esc(ghErr)+'</div>':ghCard(d.github))
-  +'<div class="tk-h">Other sessions found on disk (not started by the panel, cannot be stopped from here)</div>'
-  +((d.discovered||[]).length?d.discovered.slice(0,12).map(s=>'<div class="tk-row">'+pill(s.provider,'')+'<span class="tk-rt">'+esc(s.title)+'</span><span class="m">'+esc(s.state)+' · '+when(s.mtime)+'</span></div>').join(''):'<div class="tk-empty">None found.</div>')
   +'</details></div>';
  return h;
 }

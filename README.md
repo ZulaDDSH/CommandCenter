@@ -56,7 +56,7 @@ It parse-checks every module, copies the app to a temp folder, commits that copy
 | Path | What |
 |---|---|
 | `viewer/server.mjs` | The web panel and its API. |
-| `viewer/public/` | The page: `app.*` (Freebuff and provider tabs), `director.*` (the Director tab: chat, models, task tree, board, budget, settings, machines, pull requests), `tasks.*` (Home and the task tree the Director tab embeds), `sessions.*` (session viewer), `pages.*` (Guide, Debug, Setup), and one file pair per extra tab. |
+| `viewer/public/` | The page: `app.*` (nav, tab routing and the Freebuff live view), `director.*` (the Director tab: chat, models, task tree, board, budget, settings, machines, pull requests), `tasks.*` (Home and the task tree the Director tab embeds), `sessions.*` (the Sessions tab and the session viewer), `pages.*` (Guide, Debug, Setup), and one file pair per extra tab. |
 | `lib/config.mjs` | Settings, saved in `config.json` by Setup. |
 | `lib/tasks.mjs` | The task queue and dispatcher (`tasks.json`, `tasks/`, `logs/`). |
 | `lib/sessions.mjs` | Reads Codex, OpenCode and Cursor session history for the session viewer. |

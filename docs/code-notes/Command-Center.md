@@ -428,7 +428,7 @@ One POST route, `/session/meta?p=&id=&a=rename|archive|unarchive|delete`, behind
 
 ## viewer/public/sessions.js:sessTable
 
-One table renderer is shared by the Codex, Cursor, OpenCode and Claude tabs. Archived rows are left out unless "Show N archived" is on for that provider. `window.sessReload` is set by whichever list rendered last, so the `#view` modal can refresh the list behind it. The Freebuff sidebar in `viewer/public/app.js` uses its own markup; `/api` adds `label` and `hidden` there so the existing `archived` (report written) keeps its meaning.
+`sessTable` is the one table for the Sessions tab (`PAGES.sessions`), which lists every provider's sessions from `/sessions`, working first, then idle, then finished. Archived rows are left out unless "Show N archived" is on. A Freebuff row opens the Freebuff live view (hash = slug); every other row opens the `#view` modal. Row buttons show on hover. The per-provider tabs and `claude.js` were removed; `GET /claude/state` stays for agents. `window.sessReload` is set by whichever list rendered last, so the `#view` modal can refresh the list behind it. The Freebuff sidebar in `viewer/public/app.js` uses its own markup; `/api` adds `label` and `hidden` there so the existing `archived` (report written) keeps its meaning.
 
 ## viewer/public/director.js:build
 
@@ -626,3 +626,15 @@ Uses a saved level only when it is in `EFFORTS` for the provider that actually r
 ## lib/routes/orch.mjs:/orch/config
 
 The older Orchestrator form does not send `team` or `effort`; the route keeps the saved values when those fields are absent, so that form cannot clear the person's choices.
+
+## viewer/public/app.css:root
+
+All colours, fonts and radii live in the `:root` tokens. The old names (`--bg`, `--panel`, `--panel2`, `--line`, `--fg`, `--dim`, `--accent`, `--green`, `--amber`, `--violet`, `--red`) are kept so every other stylesheet and the generated markup keep working; new names are `--ink`, `--raise`, `--line2`, `--paper`, `--live`, `--font`, `--mono`, `--r1`..`--r3` and one `--c-<provider>` per provider. No other stylesheet holds a hex colour. The font is Bahnschrift (ships with Windows 10 and later) with Segoe UI as the fallback; nothing is loaded from the network because the panel is local and private.
+
+## viewer/public/app.css:nav
+
+Tabs are grouped (work, archive and system) with `.sep` spacers that are not `<a>`, because `app.js:setTab` toggles `.on` on `#tabs a` only. There are no per-provider tabs: `app.js` maps a saved `freebuff`, `codex`, `cursor`, `opencode` or `claude` tab to `sessions`. A provider's `--c-<provider>` colour shows only on its `.tk-badge.p-<provider>` badge in `tasks.css`.
+
+## viewer/public/app.css:button.pill
+
+The primary action is paper-white on ink (`.tk-act .pill`, `.pill.primary`); ordinary buttons are outlined. Labels above fields are sentence case, not tracked capitals.
