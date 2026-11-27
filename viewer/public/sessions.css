@@ -20,15 +20,11 @@
 .sess-all table.ss td{white-space:nowrap}
 .sess-all table.ss td.st{width:100%;max-width:0;overflow:hidden;text-overflow:ellipsis}
 .sess-all table.ss td:nth-child(3){max-width:170px;overflow:hidden;text-overflow:ellipsis;color:var(--dim)}
-.sess-all .sact .pill{opacity:0}
-.sess-all .srow:hover .sact .pill,.sess-all .srow:focus-within .sact .pill{opacity:1}
-@media(hover:none){.sess-all .sact .pill{opacity:1}}
 .srow.arch{opacity:.6}.sarch{margin-top:10px}.sarch .pill{padding:3px 10px;font-size:12px}
 .vact{display:flex;gap:6px;flex:none}.vact[hidden]{display:none}.vact .pill{padding:3px 10px;font-size:12px}
 @media(max-width:700px){
  .session-scroll-hint{display:block}
  .sess-all table.ss th:nth-child(3),.sess-all table.ss td:nth-child(3){display:none}
- .sess-all .sact .pill{opacity:1}
  .sess-all table.ss td.st{width:auto;max-width:210px}
  #view{align-items:flex-end}
  .vbox{width:100vw;height:94vh;border-radius:var(--r3) var(--r3) 0 0}
@@ -36,3 +32,5 @@
  .vh{flex-wrap:wrap}.vh>div{flex-basis:100%}.vact{flex-wrap:wrap}
  #vfeed{padding:12px 12px 40px}
 }
+
+.session-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 16px}.session-tabs .on{background:var(--panel2);border-color:var(--dim)}

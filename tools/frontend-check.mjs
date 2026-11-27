@@ -110,6 +110,10 @@ try {
         }
       }
       if (tab === 'sessions') {
+        await page.locator('[data-session-provider="claude"]').click();
+        await page.getByText('No sessions match these filters.').waitFor({ state: 'visible' });
+        assert.equal(await page.evaluate(() => document.activeElement.dataset.sessionProvider), 'claude');
+        await page.locator('[data-session-provider="all"]').click();
         await page.locator('#session-state').selectOption('finished');
         assert.match(await page.locator('.sess-all .archive-pager span').innerText(), /26 matching · page 1 of 2/);
         await page.locator('[data-session-page="next"]').click();
