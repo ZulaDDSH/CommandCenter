@@ -165,3 +165,19 @@ route `POST /director/stage` is the way to add an entry from a running panel.
   finished before Stage 2a remain in the retired folder and still do not appear as evidence.
 - Next: push the repository and run the check in the workflow; then one real task through a real
   provider in `E:/Command Center/git/<task-id>`; then `gh` PR reads against a real repository.
+
+## 2026-11-27 — Stage 3a: review before the first upload
+
+- Goal: none. This machine's pre-push guard requires a review of the code being pushed, and this is
+  the first push to the GitHub remote.
+- Exists: `lib/director.mjs:snapshot` listed every live task as an `agent`, including one still
+  `waiting` with no process, and `viewer/public/director.js` labels anything without a pid or CLI as
+  `discovered`. A goal that had only queued a task therefore claimed a discovered session that did
+  not exist — the confusion capability 1 asks the panel to avoid.
+- Changed: `agents` now means a task with a running process (`pid` or `cli`). The unused `role` field
+  is gone; `root` still marks the goal's own run.
+- Evidence: `node tools/director-check.mjs` → 68 passed, 0 failed (exit 0).
+- Limitations: a queued task's reserved worktree is not shown until it starts. Lease fencing — a
+  stale writer cannot close a task that a newer owner re-claimed — remains the open gap from the
+  previous entry; this stage does not change it.
+- Next: the lease-token compare-and-set, then a second machine.

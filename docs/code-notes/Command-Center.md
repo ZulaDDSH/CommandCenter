@@ -513,4 +513,4 @@ The app folder is its own repository root, which is what lets `config.json` keep
 
 ## lib/director.mjs:snapshot (agents)
 
-Each `agents` entry carries the checkout and the lease of a live run: `worktree`, `branch`, `leaseOwner`, `leaseAt`, plus `role` and `root`. A goal's own root task is included (it was filtered out before), because that task is the one that can hold a checkout while the card showed no agent at all. `viewer/public/director.js:goalCard` renders the path, the branch and the owner.
+Each `agents` entry carries the checkout and the lease of a live run: `worktree`, `branch`, `leaseOwner`, `leaseAt`, plus `root`. It lists only a task with a running process (`pid` or `cli`), because the card labels anything without one as `discovered` and a queued task is not a discovered session. A goal's own root task is included (it was filtered out before), because that task is the one that can hold a checkout while the card showed no agent at all. `viewer/public/director.js:goalCard` renders the path, the branch and the owner.
