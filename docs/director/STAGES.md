@@ -444,3 +444,6 @@ were removed so the log has a single writer and no second path that could interl
   another; that is weaker than a secret per pair. The secret still has to be copied between machines by
   hand, and the panel remains 127.0.0.1-only, so a peer over the network needs a tunnel.
 - Next: a one-time pairing code so each machine gets its own secret without a shared string being copied.
+- CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45948032524 — success, `128 passed, 0 failed`
+  on `windows-latest`, for commit `41f1252`. The only later change is this line and the same link in
+  `FEATURE-PARITY.md`.

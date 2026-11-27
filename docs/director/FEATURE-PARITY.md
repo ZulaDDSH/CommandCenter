@@ -190,3 +190,6 @@ https://github.com/ZulaDDSH/CommandCenter/actions/runs/45946597647
 
 Later rows (the stage-log removal): `126 passed, 0 failed` on `windows-latest`, commit `36852ef`,
 https://github.com/ZulaDDSH/CommandCenter/actions/runs/45947200108
+
+Later rows (one-rule pairing): `128 passed, 0 failed` on `windows-latest`, commit `41f1252`,
+https://github.com/ZulaDDSH/CommandCenter/actions/runs/45948032524
