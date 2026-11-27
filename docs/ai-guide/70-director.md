@@ -54,11 +54,15 @@ create it, and nothing deletes another owner's worktree.
 | `POST /director/machines/add` | `{name, url}` adds a peer. It also names the environment variable that must hold its secret. |
 | `POST /director/machines/check` | `{id}` makes one signed `POST <url>/machine/hello`. Online only on a real answer. |
 | `POST /director/machines/remove`, `/enable` | Change the local inventory only. |
-| `POST /machine/hello` | The other half: verifies an HMAC signature over peer id and timestamp within 60 s, then returns this machine's capabilities. |
+| `POST /machine/hello` | The other half: verifies an HMAC signature with `CC_PEER_SECRET` over peer id and timestamp within 60 s, records the caller under the id it signed with (adding it as `learned` if it is not listed), then returns this machine's capabilities. |
 
-Secrets are never written to a file by the panel: `machines.json` holds only the variable name
-(`CC_PEER_<NAME>`). The panel still listens on 127.0.0.1 only, so a peer reaches it through a tunnel
-you control.
+Pairing is one rule: the same secret in `CC_PEER_SECRET` on both machines, then on the other machine
+`node tools/peer.mjs join --host <this panel's url> --name <the label it has here>`. The secret never
+appears in a file or a request body — it is only the HMAC key — and the host records the id the other
+machine signed with, so no id is derived from a name and there is no variable per machine.
+`machines.json` holds a label, the panel address and that reported id; a machine that signs in without
+being listed is added with `learned: true` and no address. The panel still listens on 127.0.0.1 only, so
+a peer reaches it through a tunnel you control.
 
 ## Pull requests
 

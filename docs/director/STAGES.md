@@ -418,3 +418,29 @@ were removed so the log has a single writer and no second path that could interl
   instead of a route-level writer beside it.
 - CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45947200108 — success, `126 passed, 0 failed`
   on `windows-latest`, for commit `36852ef`. The only later change is this line.
+
+## 2026-11-27 — Stage 9: one rule for pairing
+
+- Goal: none.
+- Exists: pairing needed two different variable names for one secret — each side set `CC_PEER_<the other
+  machine's name>` — and the id of a machine was derived twice: `addPeer` hashed the *name* it was given,
+  while a peer signed with `sha256(hostname|user|ROOT)`. A real hello therefore matched only through a
+  name fallback, and a machine that was not listed in advance got a 404 before it could pair.
+- Changed:
+  - one variable, `CC_PEER_SECRET`, with the same name on every machine; `machines.json` no longer
+    records a variable name per peer, and the old entries are upgraded on load (`secretEnv` and
+    `reportedId` dropped, `key` added, id kept until the next hello replaces it).
+  - a listed machine is a label plus a panel address; its `id` is `null` until it signs. `verifyHello`
+    checks the signature with the one secret and then stores the id the caller signed with, adding an
+    unlisted caller as `learned: true` with no address — so the id always comes from the machine itself.
+  - the outbound `handshake` learns the id from the hello reply and keys its online state by the local
+    `key`, so Connect/Remove work before and after a machine is known.
+  - the route note, the Machines card, the settings check, the guide, this README and the code notes say
+    the same thing: one secret, same name, on both machines.
+- Evidence: `node tools/director-check.mjs` → 128 passed, 0 failed (126 before). New assertions: a
+  machine can be listed by name and address only and has no id yet, the host learns the exact id the
+  machine signs with, and no peer row carries a per-machine variable name.
+- Limitations: one shared secret pairs every machine that holds it, so a machine holding it could sign as
+  another; that is weaker than a secret per pair. The secret still has to be copied between machines by
+  hand, and the panel remains 127.0.0.1-only, so a peer over the network needs a tunnel.
+- Next: a one-time pairing code so each machine gets its own secret without a shared string being copied.

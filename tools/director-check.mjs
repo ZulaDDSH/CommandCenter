@@ -32,6 +32,8 @@ const setLease = (id, lease) => {
 };
 const stamp = (ms = 120000) => ({ owner: 'other-host:1:x', at: new Date().toISOString(), ttl: 120000, expiresAt: new Date(Date.now() + ms).toISOString() });
 const fakeToken = () => crypto.randomBytes(6).toString('hex');
+const PEER_ENV = ['CC', 'PEER', 'SECRET'].join('_');
+const PEER_VALUE = crypto.randomBytes(16).toString('hex');
 let secondWriter = null;
 const second = async () => (secondWriter ??= await import(pathToFileURL(path.join(app, 'lib', 'tasks.mjs')).href));
 
@@ -192,7 +194,7 @@ async function startPanel({ app, bin, port, log, extraEnv = {} }) {
       CC_FAKE_REPORTS: path.join(app, REPORTS),
       CC_FAKE_MARK: path.join(app, 'state', 'fake-ran'),
       CC_FAKE_SLEEP_MS: '0',
-      CC_PEER_CHECK_PEER: 'check-secret-not-real',
+      [PEER_ENV]: PEER_VALUE,
       ...extraEnv,
     },
   });
@@ -293,20 +295,22 @@ try {
 
   console.log('\nMachine inventory and the signed hello');
   const peerName = 'check-peer';
-  const peerId = 'm-' + crypto.createHash('sha256').update(peerName).digest('hex').slice(0, 10);
+  const peerId = 'm-' + crypto.createHash('sha256').update(peerName).digest('hex').slice(0, 12);
   const added = await postJson(port1, '/director/machines/add', { name: peerName, url: 'http://127.0.0.1:1' });
-  must('a machine can be listed', added.status === 200 && added.body?.peer?.id === peerId, added.body?.error ?? `HTTP ${added.status}`);
-  const checkOffline = await postJson(port1, '/director/machines/check', { id: peerId });
+  must('a machine can be listed by name and address only', added.status === 200 && !!added.body?.peer?.key && added.body?.peer?.id == null, added.body?.error ?? `HTTP ${added.status}`);
+  const checkOffline = await postJson(port1, '/director/machines/check', { key: added.body?.peer?.key });
   must('an unreachable machine is not claimed online', checkOffline.status === 200 && checkOffline.body?.ok === false, checkOffline.body?.status ?? `HTTP ${checkOffline.status}`);
   const inv0 = await getJson(port1, '/director/machines');
   must('it is reported offline, not online', !!inv0?.peers?.length && inv0.peers.every(p => p.status !== 'online'), (inv0?.peers ?? []).map(p => p.status).join(','));
 
   const ts = Date.now();
-  const goodSig = crypto.createHmac('sha256', 'check-secret-not-real').update(`${peerId}.${ts}`).digest('hex');
-  const hello = await http(port1, '/machine/hello', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cc-peer': peerId, 'x-cc-ts': String(ts), 'x-cc-sig': goodSig }, body: '{}' });
+  const goodSig = crypto.createHmac('sha256', PEER_VALUE).update(`${peerId}.${ts}`).digest('hex');
+  const hello = await http(port1, '/machine/hello', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cc-peer': peerId, 'x-cc-name': peerName, 'x-cc-ts': String(ts), 'x-cc-sig': goodSig }, body: '{}' });
   must('a correctly signed hello is accepted', hello.status === 200 && !!hello.body?.capabilities, hello.body?.error ?? `HTTP ${hello.status}`);
   const inv1 = await getJson(port1, '/director/machines');
   must('only then is the machine reported online', inv1?.peers?.[0]?.status === 'online', inv1?.peers?.[0]?.status ?? 'none');
+  must('the host learned the id the machine signs with', inv1?.peers?.[0]?.id === peerId, inv1?.peers?.[0]?.id ?? 'none');
+  must('pairing uses one secret name, not one per machine', (inv1?.peers ?? []).every(p => !('secretEnv' in p)));
   const badHello = await http(port1, '/machine/hello', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cc-peer': peerId, 'x-cc-ts': String(ts), 'x-cc-sig': '00'.repeat(32) }, body: '{}' });
   must('a bad signature is refused', badHello.status === 403, `HTTP ${badHello.status}`);
   const staleHello = await http(port1, '/machine/hello', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cc-peer': peerId, 'x-cc-ts': String(Date.now() - 120000), 'x-cc-sig': goodSig }, body: '{}' });
@@ -425,7 +429,7 @@ try {
   writeConfig(app, app, { mergeEnabled: true });
   const port2 = await freePort();
   const peerSecret = crypto.randomBytes(18).toString('hex');
-  current = await startPanel({ app, bin, port: port2, log, extraEnv: { CC_FAKE_SLEEP_MS: '900000', CC_PEER_CHECK_WORKSTATION_B: peerSecret } });
+  current = await startPanel({ app, bin, port: port2, log, extraEnv: { CC_FAKE_SLEEP_MS: '900000', [PEER_ENV]: peerSecret } });
   const mk2 = await postJson(port2, '/director/goal', { title: 'Interrupt goal', text: 'Stay running long enough to be killed.', priority: 3, projectDir: app, limits: { maxLive: 2, taskMinutes: 30 } });
   const goal2 = mk2.body?.goal?.id, task2 = mk2.body?.task?.id;
   must('a second goal starts a task', mk2.status === 200 && !!task2, `HTTP ${mk2.status}${mk2.body?.error ? ` — ${mk2.body.error}` : ''}`);
@@ -509,14 +513,14 @@ try {
   console.log('\nA second machine joins with its own process, token and data dir');
   const secondName = 'check-workstation-b';
   const peerAdded = await postJson(port2, '/director/machines/add', { name: secondName, url: 'http://127.0.0.1:1' });
-  must('the host lists a second machine', peerAdded.status === 200 && !!peerAdded.body?.peer?.id, peerAdded.body?.error ?? `HTTP ${peerAdded.status}`);
+  must('the host lists a second machine', peerAdded.status === 200 && !!peerAdded.body?.peer?.key, peerAdded.body?.error ?? `HTTP ${peerAdded.status}`);
   const listed = (await getJson(port2, '/director/machines'))?.peers?.find(x => x.name === secondName);
   must('a listed machine is not authenticated until it signs', listed?.authenticated === false && listed?.status === 'offline', `${listed?.status} / authenticated ${listed?.authenticated}`);
 
   const peerRoot = path.join(tmp, 'peer');
   const peerRun = spawnSync(process.execPath, [path.join(app, 'tools', 'peer.mjs'), 'join', '--host', `http://127.0.0.1:${port2}`, '--name', 'check-host', '--task', task2], {
     encoding: 'utf8', timeout: 90000, windowsHide: true,
-    env: { ...process.env, CC_ROOT: peerRoot, CC_MACHINE_NAME: secondName, CC_PEER_CHECK_HOST: peerSecret, CC_FAKE_SLEEP_MS: '0' },
+    env: { ...process.env, CC_ROOT: peerRoot, CC_MACHINE_NAME: secondName, [PEER_ENV]: peerSecret, CC_FAKE_SLEEP_MS: '0' },
   });
   const peerLine = String(peerRun.stdout ?? '').trim().split(/\r?\n/).filter(Boolean).pop() ?? '';
   let peer = null;
@@ -532,7 +536,7 @@ try {
 
   const afterPeer = (await getJson(port2, '/director/machines'))?.peers?.find(x => x.name === secondName);
   must('the host records it as an authenticated machine', afterPeer?.status === 'online' && afterPeer?.authenticated === true, `${afterPeer?.status} / authenticated ${afterPeer?.authenticated}`);
-  must('the host keeps its identity, capabilities and availability', afterPeer?.reportedId === peer?.selfId && !!afterPeer?.capabilities?.providers && afterPeer?.available === true, `${afterPeer?.reportedId ?? 'none'} / available ${afterPeer?.available}`);
+  must('the host learned its own-signed id, capabilities and availability', afterPeer?.id === peer?.selfId && !!afterPeer?.capabilities?.providers && afterPeer?.available === true, `${afterPeer?.id ?? 'none'} / available ${afterPeer?.available}`);
   const peerTask = (await getJson(port2, '/tasks'))?.tasks?.find(x => x.id === task2);
   must('the second machine neither recovered nor interrupted the task', peerTask?.status === 'running' && peerTask?.lease?.token === token1 && peerTask?.lease?.owner === beforeKill.lease.owner, `${peerTask?.status} / ${peerTask?.lease?.token}`);
   const taskMachines = ((await getJson(port2, '/tasks'))?.tasks ?? []).map(x => x.machine).filter(m => m && m !== 'local');

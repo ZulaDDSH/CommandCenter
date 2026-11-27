@@ -39,8 +39,8 @@ async function join() {
   fs.mkdirSync(ROOT, { recursive: true });
   const known = machines.peers().find(p => p.name.toLowerCase() === hostName.toLowerCase());
   const entry = known ?? machines.addPeer({ name: hostName, url: hostUrl });
-  const secret = process.env[entry.secretEnv];
-  const hello = await machines.handshake(entry.id);
+  const secret = process.env.CC_PEER_SECRET;
+  const hello = await machines.handshake(entry.key);
   const claim = await machines.callPeer(hostUrl, '/machine/claim', { secret, selfId: machines.selfId(), body: { task: taskId || null } });
   const claimBad = await machines.callPeer(hostUrl, '/machine/claim', { secret: `${secret ?? ''}-invalid`, selfId: machines.selfId(), body: { task: taskId || null } });
   const ids = ownTasks().map(t => t.id);

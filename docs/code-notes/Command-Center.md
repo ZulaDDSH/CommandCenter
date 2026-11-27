@@ -497,7 +497,7 @@ Replaced "every running task becomes failed". A `running`/`starting` record on l
 
 ## lib/machines.mjs:handshake / verifyHello
 
-Two halves of one protocol. The caller signs `hmac(sha256, secret, "<peer id>.<ms>")` and sends it with its own id; the receiver looks the peer up in `machines.json`, checks the timestamp is within 60 s (replay window), recomputes the signature with `CC_PEER_<NAME>` from its environment and compares with `timingSafeEqual`. A peer is `online` in the UI only after a successful answer; a missing secret is `unconfigured` and nothing is sent. `machines.json` stores the variable name, never the secret. The panel still binds 127.0.0.1, so a peer needs a tunnel the user controls.
+Two halves of one protocol. The caller signs `hmac(sha256, secret, "<peer id>.<ms>")` and sends it with its own id; the receiver looks the peer up in `machines.json`, checks the timestamp is within 60 s (replay window), recomputes the signature with `CC_PEER_SECRET` — one variable name on every machine, see `lib/machines.mjs:verifyHello` — and compares with `timingSafeEqual`. The verified id is what the row is keyed by: an unlisted caller is added with `learned: true` and no address, and a row's id is never derived from its name. A peer is `online` in the UI only after a successful answer; a missing secret is `unconfigured` and nothing is sent. `machines.json` never holds the secret. The panel still binds 127.0.0.1, so a peer needs a tunnel the user controls.
 
 ## lib/github.mjs:mergeBlockers
 
