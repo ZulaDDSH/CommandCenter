@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-codex-session-'));
 process.env.HOME = home;
+process.env.USERPROFILE = home;
 process.env.CC_ROOT = home;
 const dir = path.join(home, '.codex');
 fs.mkdirSync(dir);
@@ -29,7 +30,12 @@ try {
   assert.equal(liveOf(row).live, 'reported');
   assert.deepEqual(codexSession(id).steps.map(x => x.text), ['Hello', 'Working']);
   assert.equal(removal.codex(id).state, 'working');
-  assert.equal(liveOf({ ...row, mtime: Date.now() - 300000 }).live, 'unknown');
+  assert.equal(liveOf({ ...row, mtime: Date.now() - 300000 }).live, 'idle');
+  assert.equal(liveOf({ taskStatus: 'done', mtime: 0 }).live, 'finished');
+  assert.equal(liveOf({ taskStatus: 'failed', mtime: 0 }).live, 'stopped');
+  assert.equal(liveOf({ taskStatus: 'running', mtime: 0 }).live, 'reported');
+  assert.equal(liveOf({ taskStatus: 'running', pid: process.pid, mtime: 0 }, Date.now(), () => true).live, 'running');
+  assert.notEqual(liveOf({ mtime: 0 }).live, 'unknown');
   const db = new DatabaseSync(path.join(dir, 'thread_history_1.sqlite'));
   db.exec("update thread_turns set status = 'completed'");
   db.close();

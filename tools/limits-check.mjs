@@ -123,9 +123,9 @@ const setup = limits => { const g = mk(limits), d = dir(g); D.linkTask(g.id, d.i
   must('status: a live process with a fresh write is running', v({ pid: 42 }) === 'running');
   must('status: a fresh write with no process id is only recent activity', v({}) === 'recent');
   must('status: a dead process id is only recent activity', v({ pid: 42 }, dead) === 'recent');
-  must('status: a live process with no recent write is unknown, not running', v({ pid: 42, mtime: now - 3e5 }) === 'unknown');
-  must('status: an old session is unknown, never finished', v({ mtime: now - 864e5 }) === 'unknown');
-  must('status: a missing time is unknown', v({ mtime: 0 }) === 'unknown');
+  must('status: a live process with no recent write is idle, not running', v({ pid: 42, mtime: now - 3e5 }) === 'idle');
+  must('status: an old session is idle, never finished or unknown', v({ mtime: now - 864e5 }) === 'idle');
+  must('status: a missing time is idle, never unknown', v({ mtime: 0 }) === 'idle');
   must('status: a completed transcript is finished', v({ ended: true, mtime: now - 864e5 }) === 'finished' && v({ ended: true }) === 'finished');
   const many = Array.from({ length: 21 }, (_, i) => ({ id: `s${i}` }));
   const capped = M.capRows('codex', many, 15);
@@ -133,6 +133,8 @@ const setup = limits => { const g = mk(limits), d = dir(g); D.linkTask(g.id, d.i
   must('limit: 15 or fewer rows get no note', M.capRows('codex', many.slice(0, 15), 15).length === 15);
   const rows = M.decorate('codex', [{ id: 'a', mtime: Date.now() - 1000 }, { id: '', note: true, title: 'note', mtime: 0 }]);
   must('status: decorate adds live and why to sessions only', rows[0].live === 'recent' && rows[0].liveWhy && rows[1].live === undefined, JSON.stringify(rows));
+  const doneRows = M.decorate('codex', [{ id: 'done-1', ended: true, mtime: Date.now() }]);
+  must('status: finished sessions are auto-archived', doneRows[0].live === 'finished' && doneRows[0].archived === true && doneRows[0].autoArchived === true, JSON.stringify(doneRows));
 }
 
 console.log(failed ? `\n${failed} limits check(s) failed.` : '\nAll limits checks passed.');

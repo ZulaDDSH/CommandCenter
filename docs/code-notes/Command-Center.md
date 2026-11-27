@@ -768,9 +768,20 @@ The limits check is a pure unit run on a throwaway `CC_ROOT`. Its sections cover
 
 `lib/session-meta.mjs:freebuffEnded` treats a tracked task status as authoritative for its Freebuff session. An untracked session uses its report as completion evidence; a running retry or failed task is not marked done merely because an older report exists. The list, session detail, and Director discovery apply the same rule. `lib/session-meta.mjs:freebuffBusy` protects a running retry from deletion even when an older report exists.
 
+`viewer/public/sessions.js:steps` shows conversation messages in Chat and tool calls under the separate Tool calls view. The session opens on Chat, retains the chosen view while it refreshes, and keeps individual tool calls closed until expanded. `viewer/public/sessions.js:renderSessions` lists sessions without duplicating the Director task list.
+
 `lib/session-origin.mjs:sessionOrigin` scopes session discovery to recorded Command Center task IDs and explicit provider evidence. Codex uses session IDs printed in task logs; OpenCode uses the task ID in its generated title; Claude and Cursor use the exact task-file pointer in their initial prompt; Freebuff uses its task segment. Retries can change the current provider, so historical links do not depend on `ranOn`. Runs without surviving evidence cannot be linked, and provider history is never altered by filtering.
 
-`usage/providers.mjs:opencode` reads the documented OpenCode Go usage windows using the existing local Go key. Percentages represent shared plan usage across Go models. Authentication and network failures are shown without exposing the key; the other providers' unavailable account limits are not inferred from spending.
+`usage/providers.mjs:opencode` follows PR-Review-System's Go usage reader, including its session header and preference for the configured environment key. Percentages represent shared plan usage across Go models. `usage/providers.mjs:claude` reads account windows using the Claude Code token or its login file, without returning credentials or provider response bodies. These endpoints are undocumented and can reject credentials or change independently. `lib/orchestrator.mjs:budget` passes the windows and errors to the usage drawer and marks readings stale after their reset time.
+
+`usage/providers.mjs:opencode` accepts `CC_OPENCODE_USAGE_KEY` ahead of the task credential, allowing a read-only key to be used for the usage display without replacing the key OpenCode uses to execute tasks. Entries containing whitespace are rejected before a request is made.
+
+`usage/providers.mjs:usageKeyFromRegistry` reads the current Windows user's usage-only setting when the server did not inherit it. This lets a running server pick up a key saved after it started without exposing the value to the browser or task processes.
+
+## viewer/public/sessions.js:renderSessions and sessTable
+
+The session filter chooses archived visibility before pagination. The table renders that same page without filtering archived rows a second time, so the Done filter and its page count include the same sessions.
+
 `lib/session-origin.mjs:sessionOrigin` associates a Codex failure with the latest timestamped invocation only. The session detail displays the linked failed task's sanitized note when that association is unambiguous.
 
 ## lib/config.mjs:DEFAULTS, lib/tasks.mjs:canFallbackOpenCode, lib/tasks.mjs:opencodeAttemptMatch, lib/tasks.mjs:opencodeWorkState, lib/tasks.mjs:queueOpenCodeFallback and lib/sessions.mjs:opencodeSession

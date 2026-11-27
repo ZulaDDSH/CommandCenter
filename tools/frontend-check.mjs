@@ -13,20 +13,22 @@ const now = Date.now(), stamp = new Date(now).toISOString();
 const task = { id: 'example-task', title: 'Director task with a readable title', status: 'cancelled', role: 'orchestrator', kind: 'code', provider: 'codex', ranOn: 'codex', model: 'example-model', cwd: '/workspace/git/example-task', createdAt: stamp, startedAt: stamp, endedAt: stamp, note: 'Stopped with its goal.' };
 const runningTask = { ...task, id: 'running-task', title: 'Running task example', status: 'running', role: 'worker', endedAt: null };
 const session = { id: 'example-session', provider: 'codex', title: 'Example session', model: 'example-model', cwd: '/workspace/project', mtime: now, live: 'recent', liveWhy: 'Recent activity', archived: false };
-const sessions = [session, ...Array.from({ length: 26 }, (_, i) => ({ ...session, id: `finished-${i}`, title: `Finished session ${i}`, live: 'finished', mtime: now - i - 1000 }))];
+const sessions = [session, { ...session, id: 'auto-done-0', title: 'Auto archived session', live: 'finished', archived: true, autoArchived: true, mtime: now - 60000 }, ...Array.from({ length: 26 }, (_, i) => ({ ...session, id: `finished-${i}`, title: `Finished session ${i}`, live: 'finished', mtime: now - i - 1000 }))];
 const archivedFixture = new Set(), archiveRequests = [];
 const pullRequest = { number: 12, title: 'A pull request with a descriptive title', url: 'https://example.com/pr/12', head: 'example-branch', headSha: '1234567', headShaFull: '123456789', evidence: { ci: 'passing', review: 'approved' }, ci: { state: 'passing', pass: 1, fail: 0, pending: 0 }, updatedAt: stamp };
 let orch = { orchestrator: { mode: 'orchestrated', provider: 'codex' }, team: [], workerModels: {}, efforts: { codex: ['low', 'high'] } };
+let teamItems = [{ id: 'b1', kind: 'board', at: stamp, from: 'director', to: 'team', provider: 'director', taskId: 'running-task', text: 'Wave check-in sent to team.', sessionRef: { provider: 'codex', id: 'example-session' } }, { id: 'r1', kind: 'report', at: stamp, from: 'codex-running-task', to: 'director', provider: 'codex', taskId: 'running-task', title: 'Running task example', status: 'running', text: 'Working on task.', sessionRef: { provider: 'codex', id: 'example-session' } }];
 const reply = pathname => ({
   '/api': [], '/setup': setup, '/setup/folders': { repos: [] }, '/models': { codex: [{ id: 'example-model', name: 'Example Model' }] }, '/board': [],
   '/tasks': { tasks: [task, runningTask], dispatcher: { lastTick: now } },
   '/director': { goals: [], needsYou: [], dispatcher: { lastTick: now }, config: {}, machines: null, github: { repo: 'example/repo', at: stamp, prs: [pullRequest] } },
   '/orch': orch,
-  '/budget': { providers: { freebuff: { enabled: true, hoursLeft: '12:00', models: [{ id: 'fb-example', name: 'Example Freebuff', workHoursLeft: 6 }] }, codex: { enabled: true, installed: true, running: 0, max: 2, windows: [{ minutes: 10080, usedPercent: 45, stale: false }] }, cursor: { enabled: true }, opencode: { enabled: true, windows: [{ name: 'rolling', usedPercent: 30 }] } } },
-  '/sessions': sessions.map(s => ({ ...s, archived: archivedFixture.has(s.id) })), '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }] },
+  '/budget': { providers: { freebuff: { enabled: true, hoursLeft: '12:00', models: [{ id: 'fb-example', name: 'Example Freebuff', workHoursLeft: 6 }] }, codex: { enabled: true, installed: true, running: 0, max: 2, windows: [{ minutes: 10080, usedPercent: 45, stale: false }] }, cursor: { enabled: true }, opencode: { enabled: true, windows: [{ name: 'rolling', usedPercent: 30 }] }, claude: { enabled: true, windows: [{ label: 'Weekly, Opus', usedPercent: 25 }] } } },
+  '/sessions': sessions.map(s => ({ ...s, archived: Boolean(s.archived || archivedFixture.has(s.id)) })), '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }, { k: 'tool', name: 'Read', input: 'example input', output: 'example output' }, { k: 'tool', name: 'Shell', input: 'example command', output: 'command output' }] },
   '/archive/sessions': [{ ...session, archived: true }], '/ext/list': { files: [], stash: { ok: true }, rows: [{ section: 'hooks', id: 'example-hook', rev: '1', on: true, name: 'Example hook', app: 'Codex', what: 'Runs before a tool starts.', source: 'Example settings', path: '/workspace/settings' }] },
   '/debug': [{ group: 'System', name: 'Example', ok: false, detail: 'Could not read /workspace/example-with-a-long-name/configuration.json', fix: 'Check the example configuration.' }],
-  '/spawn-check': { clis: [], max: 1, roles: {} },
+  '/spawn-check': { clis: [{ pid: 1234, model: 'DeepSeek V4.1 Flash', minsLeft: 45, working: [], queued: [], pending: false }], max: 5, why: 'CLI pid 1234 is idle with 45m left.' },
+  '/team-feed': { items: teamItems, counts: { total: teamItems.length, board: 1, tasks: 1 } },
 }[pathname]);
 const publicDir = path.resolve('viewer/public');
 const server = http.createServer((req, res) => {
@@ -47,6 +49,16 @@ const server = http.createServer((req, res) => {
       else { if (body.providers) Object.assign(config.providers, body.providers); if (body.maxParallel) Object.assign(config.maxParallel, body.maxParallel); }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(url.pathname === '/orch/config' ? orch : setup));
+    });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/board') {
+    let raw = '';
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      teamItems = [{ id: `b-${teamItems.length + 1}`, kind: 'board', at: new Date().toISOString(), from: url.searchParams.get('from') || 'you', to: 'team', provider: 'director', taskId: null, text: raw.trim(), sessionRef: null }, ...teamItems];
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('posted');
     });
     return;
   }
@@ -108,6 +120,9 @@ try {
         await drawer.getByText('55% left').waitFor({ state: 'visible' });
         await drawer.getByRole('button', { name: 'OpenCode' }).click();
         await drawer.getByText('70% left').waitFor({ state: 'visible' });
+        await drawer.getByRole('button', { name: 'Claude' }).click();
+        await drawer.getByText('Weekly, Opus').waitFor({ state: 'visible' });
+        await drawer.getByText('75% left').waitFor({ state: 'visible' });
         await drawer.getByRole('button', { name: 'Cursor' }).click();
         await drawer.getByText('Remaining usage is unavailable. Check your Cursor account for its current limits.').waitFor({ state: 'visible' });
         await page.route('**/budget', route => route.fulfill({ status: 500, body: 'failed' }));
@@ -155,25 +170,38 @@ try {
       if (tab === 'sessions') {
         const tabsFit = await page.locator('.session-tabs').evaluate(el => [...el.children].every(button => button.getBoundingClientRect().bottom <= el.getBoundingClientRect().bottom + 1));
         assert.ok(tabsFit, 'All provider tabs must fit inside their navigation');
-        const running = page.locator('[data-task-id="running-task"]');
-        await running.waitFor({ state: 'visible' });
-        await running.focus();
-        await page.evaluate(() => PAGES.sessions(document.getElementById('prov')));
-        assert.equal(await page.evaluate(() => document.activeElement.dataset.taskId), 'running-task');
-        await running.click();
-        await page.locator('#dr-root').waitFor({ state: 'visible' });
-        await page.locator('#tabs [data-t="sessions"]').click();
+        assert.equal(await page.getByText('Command Center tasks running now').count(), 0);
         await page.locator('.session-table-wrap').waitFor({ state: 'visible' });
         await page.locator('[data-session-provider="claude"]').click();
-        await page.getByText('No sessions match these filters.').waitFor({ state: 'visible' });
+        await page.getByText('No active sessions match these filters.').waitFor({ state: 'visible' });
         assert.equal(await page.evaluate(() => document.activeElement.dataset.sessionProvider), 'claude');
+        assert.equal(await page.locator('#session-state option[value="unknown"]').count(), 0);
+        await page.locator('[data-session-provider="freebuff"]').click();
+        await page.locator('.fb-usage-strip .fb-cli-chip').getByText(/45m left/).waitFor({ state: 'visible' });
+        await page.locator('[data-session-provider="team"]').click();
+        await page.locator('.team-view .team-preview').getByText('Wave check-in sent to team.').waitFor({ state: 'visible' });
+        const teamInput = page.locator('#team-note');
+        await teamInput.fill('Director reply check');
+        await teamInput.press('Enter');
+        await page.locator('.team-view .team-preview').getByText('Director reply check').waitFor({ state: 'visible' });
+        await page.waitForFunction(() => document.querySelector('#team-note')?.value === '');
+        assert.equal(await page.locator('#team-note').inputValue(), '');
+        await page.locator('.team-row summary').first().click();
+        await page.locator('.team-row[open] .team-detail').waitFor({ state: 'visible' });
         await page.locator('[data-session-provider="all"]').click();
+        assert.equal(await page.locator('.srow[data-id="auto-done-0"]').count(), 0);
+        await page.locator('#session-search').fill('Auto archived session');
+        await page.locator('[data-tog="1"]').click();
+        await page.locator('.srow[data-id="auto-done-0"] [data-a="unarchive"]').waitFor({ state: 'visible' });
+        await page.locator('[data-tog="1"]').click();
+        await page.locator('#session-search').fill('');
         await page.locator('#session-state').selectOption('finished');
-        assert.match(await page.locator('.sess-all .archive-pager span').innerText(), /26 matching · page 1 of 2/);
+        assert.match(await page.locator('.sess-all .archive-pager span').innerText(), /27 matching · page 1 of 2/);
         await page.locator('.srow[data-id="finished-0"] .sst').getByText('done', { exact: true }).waitFor({ state: 'visible' });
         await page.locator('.srow[data-id="finished-0"] [data-session-select]').check();
         await page.locator('[data-session-page="next"]').click();
         assert.match(await page.locator('.sess-all .archive-pager span').innerText(), /page 2 of 2/);
+        await page.locator('.srow[data-id="auto-done-0"] [data-a="unarchive"]').waitFor({ state: 'visible' });
         await page.locator('.srow[data-id="finished-25"] [data-session-select]').check();
         assert.match(await page.locator('[data-archive-selected]').innerText(), /2/);
         const dialogs = [];
@@ -187,7 +215,7 @@ try {
         await page.locator('[data-clear-selection]').click();
         await page.locator('#session-state').selectOption('recent');
         await page.locator('#session-search').fill('no matching session');
-        await page.getByText('No sessions match these filters.').waitFor({ state: 'visible' });
+        await page.getByText('No active sessions match these filters.').waitFor({ state: 'visible' });
         await page.locator('#session-search').fill('Example session');
         await page.locator('.session-open').first().click();
         await page.getByRole('dialog').waitFor({ state: 'visible' });
@@ -200,8 +228,20 @@ try {
         await page.keyboard.press('Shift+Tab');
         assert.equal(await page.evaluate(() => document.activeElement.dataset.expand), `${session.provider}:${session.id}:0`);
         await page.getByRole('button', { name: 'Show more' }).click();
+        assert.equal(await page.locator('#vfeed .tool').count(), 0);
+        await page.getByRole('button', { name: 'Tool calls (2)' }).click();
+        assert.equal(await page.locator('#vfeed .tool').count(), 2);
+        assert.equal(await page.locator('#vfeed .tool[open]').count(), 0);
+        await page.locator('#vfeed .tool summary').first().click();
+        await page.getByText('example output').waitFor({ state: 'visible' });
+        await page.getByRole('button', { name: 'Chat', exact: true }).click();
+        assert.equal(await page.locator('#vfeed .tool').count(), 0);
         await page.keyboard.press('Escape');
         assert.equal(await page.getByRole('dialog').isVisible(), false);
+        await page.locator('.session-open').first().click();
+        await page.getByRole('button', { name: 'Tool calls (2)' }).click();
+        assert.equal(await page.locator('#vfeed .tool[open]').count(), 0);
+        await page.keyboard.press('Escape');
       }
       if (tab === 'archive') {
         await page.locator('.asearch').fill('no matching archive');

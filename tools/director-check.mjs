@@ -299,7 +299,7 @@ try {
   const sess = await until(async () => { const r = await http(port1, '/sessions'); return r.status === 200 ? r : null; }, 45000);
   must('GET /sessions returns a list', !!sess && Array.isArray(sess.body), sess ? `HTTP ${sess.status}, ${sess.body.length} row(s)` : 'did not answer within 45 s');
   const sessRows = (sess?.body ?? []).filter(s => s.id);
-  must('every session row says running, recent, unknown or finished, never a bare "working"', sessRows.every(s => ['running', 'reported', 'recent', 'unknown', 'finished'].includes(s.live) && s.liveWhy), JSON.stringify(sessRows.find(s => !s.live)));
+  must('every session row says running, reported, recent, idle, stopped or finished, never unknown or working', sessRows.every(s => ['running', 'reported', 'recent', 'idle', 'stopped', 'finished'].includes(s.live) && s.liveWhy), JSON.stringify(sessRows.find(s => !s.live || s.live === 'unknown')));
   must('no history session claims to be running without a process id', sessRows.every(s => s.live !== 'running' || s.provider === 'freebuff'));
   must('a provider that returned more than 50 sessions ends with a visible limit note', Object.entries(sessRows.filter(s => s.provider !== 'freebuff').reduce((a, s) => (a[s.provider] = (a[s.provider] ?? 0) + 1, a), {})).every(([p, n]) => n <= 50) && (sess?.body ?? []).filter(s => !s.id && s.note).every(s => /latest 50/.test(s.title)));
 

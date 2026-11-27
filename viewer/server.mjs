@@ -8,20 +8,20 @@ import { all as providerUsage } from '../usage/providers.mjs';
 import { pick as route } from '../route.mjs';
 import { config, ROOT } from '../lib/config.mjs';
 import { rawLists as sessionLists, details as sessionDetails } from '../lib/sessions.mjs';
-import { capRows, decorate, freebuffEnded, metaFor } from '../lib/session-meta.mjs';
-import { sessionOrigin } from '../lib/session-origin.mjs';
+import { capRows, decorate, decorateOne, enrichSession, freebuffEnded, metaFor } from '../lib/session-meta.mjs';
+import { sessionOrigin, sessionTaskResolver } from '../lib/session-origin.mjs';
 import * as tasks from '../lib/tasks.mjs';
 import * as setup from '../lib/setup.mjs';
 import { listModels } from '../lib/models.mjs';
-const REFRESH = { freebuff: 300000, fbmodels: 1800000, codex: 60000, opencode: 600000, cursor: 1800000, claude: 3600000, route: 300000 };
+const REFRESH = { freebuff: 300000, fbmodels: 1800000, codex: 60000, opencode: 600000, cursor: 1800000, claude: 300000, route: 300000 };
 const usage = {};
 function cachedUsage(name, fresh) {
   const u = usage[name] ??= { at: 0, busy: false, body: '{"loading":true}' };
-  if ((fresh || Date.now() - u.at > REFRESH[name]) && !u.busy) {
+  if ((fresh || Date.now() - u.at > (u.failed ? 30000 : REFRESH[name])) && !u.busy) {
     u.busy = true;
     (name === 'route' ? route() : providerUsage[name]())
-      .then(v => { u.body = JSON.stringify({ ...v, fetchedAt: Date.now() }); },
-            e => { u.body = JSON.stringify({ error: String(e?.message ?? e).slice(0, 200), fetchedAt: Date.now() }); })
+      .then(v => { u.failed = !!(v.error || (name === 'opencode' && v.limits)); u.body = JSON.stringify({ ...v, fetchedAt: Date.now() }); },
+            e => { u.failed = true; u.body = JSON.stringify({ error: String(e?.message ?? e).slice(0, 200), fetchedAt: Date.now() }); })
       .finally(() => { u.busy = false; u.at = Date.now(); });
   }
   return u.body;
@@ -129,7 +129,7 @@ const KINDS = { code: 'coding', light: 'light coding', read: 'read-only' };
 const MAX_CLIS = () => config().maxClis;
 let sessMemo = { at: 0, v: [] };
 const memoSessions = () => (Date.now() - sessMemo.at > 4000 && (sessMemo = { at: Date.now(), v: loadSessions() }), sessMemo.v);
-function spawnDecision(kind = 'code', modelKey) {
+function spawnDecision(kind = 'code', modelKey, opts = {}) {
   if (!KINDS[kind]) kind = 'code';
   const clis = (fs.existsSync(LIVE) ? fs.readdirSync(LIVE) : []).map(f => /^freebuff-live-(\d+)\.json$/.exec(f)).filter(Boolean)
     .map(m => { let l = {}; try { l = json(fs.readFileSync(path.join(LIVE, m[0]), 'utf8')); } catch {} return { pid: Number(m[1]), expiresAt: l.expiresAt ?? 0, modelKey: l.model ?? null }; })
@@ -161,6 +161,12 @@ function spawnDecision(kind = 'code', modelKey) {
   const on = `${KINDS[kind]} on ${model?.name ?? 'the saved model'}`;
   if (!all.length) return { ...base, spawn: true, why: `${note}No freebuff CLI is running; a new one starts ${on}.` };
   if (idle) return { ...base, spawn: false, target: idle.pid, why: `${note}CLI pid ${idle.pid} runs ${model?.name ?? 'the saved model'} and is idle; send the task there.` };
+  const ownPids = new Set(tasks.freebuffDriver().own.map(c => c.pid).filter(Boolean));
+  const activeSame = !opts.newSession ? all.filter(c => (!model || c.modelKey === model.key) && (c.pending || (c.pid && ownPids.has(c.pid) && (c.minsLeft ?? 0) > 5))) : [];
+  if (activeSame.length) {
+    const soonest = [...activeSame].sort((a, b) => (a.minsLeft ?? 60) - (b.minsLeft ?? 60))[0];
+    return { ...base, spawn: false, reuseWait: true, target: soonest.pid ?? queueOn.pid, why: `${note}Reusing active ${model?.name ?? 'Freebuff'} session (${soonest.pending ? 'starting' : `${soonest.minsLeft}m left in current hour`}); waiting before opening a new CLI.` };
+  }
   if (all.length >= max) return { ...base, spawn: false, target: queueOn.pid, why: `${note}${all.length} CLIs running (max ${max}); queue on pid ${queueOn.pid}.${qNote}` };
   if (!free && useLeft == null) return { ...base, spawn: false, target: queueOn.pid, why: `Hours not read yet; queue on pid ${queueOn.pid}.${qNote}` };
   if (!free && useLeft < 2) return { ...base, spawn: false, target: queueOn.pid, why: `Only ${useLeft} h of ${model.name} left after the running CLIs; queue on pid ${queueOn.pid}.${qNote}` };
@@ -254,13 +260,95 @@ const SESS_LIMIT = 50;
 let sessCache = { at: 0, body: '[]' };
 function allSessions() {
   if (Date.now() - sessCache.at < 15000) return sessCache.body;
-  const belongs = sessionOrigin(tasks.list(), tasks.logFile);
-  const out = decorate('freebuff', loadSessions().filter(s => belongs('freebuff', s)).map(s => { const ended = freebuffEnded(s, tasks.get(s.slug)); return { provider: 'freebuff', id: s.slug, title: s.title ?? s.slug, cwd: worktree(s.slug), mtime: s.mtime, pid: s.queued || ended ? null : chatPid(s.dir), ended, state: ended ? 'done' : !s.queued && Date.now() - s.mtime < 120000 ? 'working' : 'idle' }; }));
+  const resolveTask = sessionTaskResolver(tasks.list(), tasks.logFile);
+  const ownClis = tasks.freebuffDriver().own;
+  const out = decorate('freebuff', loadSessions().map(s => {
+    const task = resolveTask('freebuff', s);
+    if (!task) return null;
+    const ended = freebuffEnded(s, task);
+    const pid = s.queued || ended ? null : chatPid(s.dir);
+    const fbCli = ownClis.find(c => c.id === task.cli) ?? ownClis.find(c => pid && c.pid === pid) ?? ownClis.find(c => c.taskId === s.slug) ?? null;
+    return enrichSession('freebuff', { provider: 'freebuff', id: s.slug, title: s.title ?? s.slug, cwd: worktree(s.slug), mtime: s.mtime, pid, ended, expiresAt: s.expiresAt ?? null, hourOver: s.hourOver, state: ended ? 'done' : !s.queued && Date.now() - s.mtime < 120000 ? 'working' : 'idle' }, task, fbCli);
+  }).filter(Boolean));
   for (const [p, fn] of Object.entries(sessionLists)) {
-    try { out.push(...capRows(p, decorate(p, fn(1000).filter(s => belongs(p, s))), SESS_LIMIT)); } catch (e) { out.push({ provider: p, id: '', title: `Could not read ${p} sessions: ${e.message}`, state: 'done', mtime: 0 }); }
+    try {
+      const rows = fn(1000).map(s => { const task = resolveTask(p, s); return task ? enrichSession(p, s, task, null) : null; }).filter(Boolean);
+      out.push(...capRows(p, decorate(p, rows), SESS_LIMIT));
+    } catch (e) { out.push({ provider: p, id: '', title: `Could not read ${p} sessions: ${e.message}`, state: 'done', mtime: 0 }); }
   }
   sessCache = { at: Date.now(), body: JSON.stringify(out) };
   return sessCache.body;
+}
+function teamFeed() {
+  const sessionByTask = new Map();
+  try {
+    for (const s of JSON.parse(allSessions())) {
+      if (s.id && s.taskId && !sessionByTask.has(s.taskId)) sessionByTask.set(s.taskId, { provider: s.provider, id: s.id, live: s.live });
+    }
+  } catch {}
+  const inferProvider = from => {
+    const low = String(from ?? '').toLowerCase();
+    for (const p of ['freebuff', 'codex', 'cursor', 'opencode', 'claude', 'antigravity']) if (low.includes(p)) return p;
+    if (low.startsWith('cc-fb-')) return 'freebuff';
+    if (/^(director|you)$/i.test(low)) return 'director';
+    return 'team';
+  };
+  const items = [];
+  const notes = boardNotes();
+  notes.forEach((n, idx) => {
+    const from = String(n.from || 'agent');
+    const taskId = /\bcc-[a-z0-9]+-[a-z0-9]+\b/.exec(from + ' ' + String(n.text ?? ''))?.[0] ?? null;
+    const isBoss = /^(director|you)$/i.test(from);
+    items.push({
+      id: `board-${idx}-${n.at || idx}`,
+      kind: 'board',
+      at: n.at || '',
+      from,
+      to: isBoss ? 'team' : 'director',
+      provider: inferProvider(from),
+      taskId,
+      text: String(n.text ?? ''),
+      sessionRef: taskId ? sessionByTask.get(taskId) ?? null : null,
+    });
+  });
+  const recentTasks = [...tasks.list()].sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0)).slice(0, 60);
+  for (const t of recentTasks) {
+    const prov = t.ranOn || t.provider || 'auto';
+    const ref = sessionByTask.get(t.id) ?? null;
+    items.push({
+      id: `dispatch-${t.id}`,
+      kind: 'dispatch',
+      at: t.createdAt || '',
+      from: t.parent ? `task-${t.parent}` : 'director',
+      to: prov,
+      provider: prov,
+      model: t.model || t.modelPref || '',
+      taskId: t.id,
+      title: t.title || t.id,
+      status: t.status,
+      text: `${t.title || t.id}${t.note ? `\n${t.note}` : ''}`,
+      sessionRef: ref,
+    });
+    const report = tasks.readTail(tasks.reportFile(t.id), 4000);
+    if (report || ['done', 'failed', 'interrupted', 'cancelled'].includes(t.status)) {
+      items.push({
+        id: `report-${t.id}`,
+        kind: 'report',
+        at: t.endedAt || t.startedAt || t.createdAt || '',
+        from: `${prov}-${t.id}`,
+        to: t.parent ? `task-${t.parent}` : 'director',
+        provider: prov,
+        model: t.model || '',
+        taskId: t.id,
+        title: t.title || t.id,
+        status: t.status,
+        text: report || t.note || `Finished (${t.status}).`,
+        sessionRef: ref,
+      });
+    }
+  }
+  items.sort((a, b) => (Date.parse(b.at || 0) || 0) - (Date.parse(a.at || 0) || 0));
+  return { items: items.slice(0, 120), counts: { total: items.length, board: notes.length, tasks: recentTasks.length } };
 }
 
 http.createServer(async (req, res) => {
@@ -292,7 +380,7 @@ http.createServer(async (req, res) => {
     if (u.pathname === '/spawn-check') {
       const kind = q('kind') || 'code';
       let d;
-      try { d = tasks.spawnApproval(kind, q('cli') || null) ?? spawnDecision(kind, q('model') || undefined); } catch (e) { d = { spawn: false, clis: [], max: MAX_CLIS(), why: `Spawn check failed: ${e.message}` }; }
+      try { d = tasks.spawnApproval(kind, q('cli') || null) ?? spawnDecision(kind, q('model') || undefined, { newSession: q('newSession') === '1' }); } catch (e) { d = { spawn: false, clis: [], max: MAX_CLIS(), why: `Spawn check failed: ${e.message}` }; }
       return send(res, 200, d);
     }
     if (u.pathname === '/board' && req.method === 'POST') {
@@ -320,15 +408,18 @@ http.createServer(async (req, res) => {
     }
     if (u.pathname === '/diff') return send(res, 200, fileDiff(q('slug'), q('file')), 'text/plain; charset=utf-8');
     if (u.pathname === '/sessions') return send(res, 200, allSessions());
+    if (u.pathname === '/team-feed') return send(res, 200, teamFeed());
     if (u.pathname === '/session') {
-      const fn = Object.hasOwn(sessionDetails, q('p')) ? sessionDetails[q('p')] : null;
+      const p = q('p'), fn = Object.hasOwn(sessionDetails, p) ? sessionDetails[p] : null;
       if (!fn) return send(res, 404, { error: 'unknown provider' });
       const s = fn(q('id'));
       if (!s) return send(res, 404, { error: 'session not found' });
-      const origin = sessionOrigin(tasks.list(), tasks.logFile), id = origin.task(q('p'), s);
-      const task = id && tasks.get(id);
-      if (task?.status === 'failed') s.failure = tasks.display(task).note || 'This task failed. Open the task log for details.';
-      return send(res, 200, s);
+      const allTasks = tasks.list(), resolveTask = sessionTaskResolver(allTasks, tasks.logFile);
+      const task = resolveTask(p, s);
+      const id = p === 'codex' ? sessionOrigin(allTasks, tasks.logFile).task(p, s) : task?.id;
+      const failedTask = id ? tasks.get(id) : null;
+      if (failedTask?.status === 'failed') s.failure = tasks.display(failedTask).note || 'This task failed. Open the task log for details.';
+      return send(res, 200, task ? decorateOne(p, enrichSession(p, s, task, null)) : s);
     }
     if (u.pathname === '/tasks' && req.method === 'POST') {
       let input;
