@@ -483,6 +483,10 @@ class SharedMcpMigrateTests(unittest.TestCase):
             self.assertEqual(codex["mcp_servers"]["ncwe"]["args"], [str(paths["adapter"]), "ncwe"])
             stash_after = json.loads(paths["stash"].read_bytes().decode("utf-8-sig"))
             expected_stash = copy.deepcopy(stash_before)
+            for name in ("gimp", "reevesagents"):
+                baseline_row = next(item for item in expected_stash["entries"] if item.get("name") == name)
+                baseline_row["cfg"]["command"] = sys.executable
+                baseline_row["cfg"]["args"] = [str(paths["adapter"]), name]
             row = next(item for item in expected_stash["entries"] if item.get("name") == "ncwe")
             row["cfg"]["command"] = sys.executable
             row["cfg"]["args"] = [str(paths["adapter"]), "ncwe"]
