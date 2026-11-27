@@ -21,7 +21,7 @@ function steps(x){const key=x.provider+':'+x.id+':';
 function render(x){cur.x=x;$('vact').hidden=false;$('varc').textContent=x.archived?'Unarchive':'Archive';const f=$('vfeed'),atBottom=f.scrollHeight-f.scrollTop-f.clientHeight<80,top=f.scrollTop,restoreFocus=keepFeedFocus(f),toolFocus=f.contains(document.activeElement)?document.activeElement.closest('details.tool')?.dataset.k:null;
  $('vtitle').textContent=x.title||x.id;$('vchat').classList.toggle('on',viewMode==='chat');$('vtools').classList.toggle('on',viewMode==='tools');$('vchat').setAttribute('aria-pressed',String(viewMode==='chat'));$('vtools').setAttribute('aria-pressed',String(viewMode==='tools'));$('vtools').textContent='Tool calls ('+x.steps.filter(s=>s.k==='tool').length+')';
  $('vmeta').innerHTML=[esc(x.provider),x.model&&esc(x.model),'<span title="'+esc(x.cwd)+'">'+esc(last2(x.cwd))+'</span>',dot(x.live||'idle',x.liveWhy),'history read from disk, the panel cannot stop or message it','last activity '+esc(recent(x.mtime))].filter(Boolean).join(' · ');
- f.innerHTML=steps(x);
+ f.innerHTML=(x.failure?'<div class="tk-warn" role="status"><b>Task failed</b><p>'+esc(x.failure)+'</p></div>':'')+steps(x);
  f.scrollTop=($('vfollow').checked&&atBottom)?f.scrollHeight:top;restoreFocus();if(toolFocus)Array.from(f.querySelectorAll('details.tool')).find(t=>t.dataset.k===toolFocus)?.querySelector('summary')?.focus({preventScroll:true})}
 
 async function load(first){const t=token;let raw,ok;

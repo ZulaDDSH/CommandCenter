@@ -24,7 +24,7 @@ async function copyText(btn, text) {
 
 let S = null, F = { repos: [] }, M = null, mAt = 0, msgs = {}, setupBusy = false, picking = null, savedTimer = 0;
 
-const FALLBACK = { codex: ['gpt-6.1-terra', 'gpt-6-luna'], codexEffort: ['low', 'medium', 'high', 'xhigh'], cursor: ['composer-2.5', 'grok-4.7'], opencode: ['opencode-go/deepseek-v4.1-flash'], claude: ['sonnet', 'opus', 'haiku'], antigravity: ['gemini-3.8-flash-medium'] };
+const FALLBACK = { codex: ['gpt-6.1-terra', 'gpt-6-luna'], codexEffort: ['low', 'medium', 'high', 'xhigh'], cursor: ['composer-2.5', 'grok-4.7'], opencode: ['opencode/deepseek-v4.1-flash-free'], claude: ['sonnet', 'opus', 'haiku'], antigravity: ['gemini-3.8-flash-medium'] };
 function modelList(m, k) {
   const src = m && (m[k] ?? m.models?.[k] ?? m.providers?.[k]?.models ?? m.providers?.[k]);
   const got = Array.isArray(src) ? src.map(x => typeof x === 'string' ? x : x?.id ?? x?.name ?? x?.value).filter(x => typeof x === 'string' && /^[\w.:/@-]{1,80}$/.test(x)) : [];

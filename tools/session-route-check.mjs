@@ -39,6 +39,18 @@ try {
   fs.writeFileSync(log, `session id: ${thread}\n`);
   const belongs = sessionOrigin([{ id: 'cc-one', ranOn: 'codex' }, { id: 'cc-two', ranOn: 'opencode' }, { id: 'cc-three', ranOn: 'claude' }, { id: 'cc-four', ranOn: 'freebuff' }], () => log);
   assert.equal(belongs('codex', { id: thread }), true);
+  assert.equal(belongs.task('codex', { id: thread }), undefined);
+  fs.writeFileSync(log, `[2026-11-27T10:00:00.000Z] codex exec\nsession id: ${thread}\n`);
+  const single = sessionOrigin([{ id: 'cc-one', ranOn: 'codex' }], () => log);
+  assert.equal(single.task('codex', { id: thread }), 'cc-one');
+  assert.equal(single.task('codex', { id: '01a21c62-6592-7380-a8ec-0f1da1106f27' }), undefined);
+  const nextThread = '01a21c62-6592-7380-a8ec-0f1da1106f27';
+  fs.appendFileSync(log, `[2026-11-27T11:00:00.000Z] codex exec\nsession id: ${nextThread}\n`);
+  const latest = sessionOrigin([{ id: 'cc-one', ranOn: 'codex' }], () => log);
+  assert.equal(latest.task('codex', { id: thread }), undefined);
+  assert.equal(latest.task('codex', { id: nextThread }), 'cc-one');
+  const duplicate = sessionOrigin([{ id: 'cc-one', ranOn: 'codex' }, { id: 'cc-other', ranOn: 'codex' }], () => log);
+  assert.equal(duplicate.task('codex', { id: nextThread }), null);
   assert.equal(belongs('codex', { id: '01a21c62-6592-7380-a8ec-0f1da1106f27' }), false);
   assert.equal(belongs('opencode', { title: 'cc-two Task' }), true);
   assert.equal(belongs('opencode', { title: 'cc-two Task', sub: true }), false);

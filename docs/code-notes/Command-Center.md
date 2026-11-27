@@ -1,5 +1,44 @@
 # Command Center code notes
 
+## tools/shared-mcp-migrate.py:migrate
+Opt-in migration for the matching disabled `prisma-mcp` and `reevesagents` local servers. It preserves Codex and OpenCode client-side fields, including timeout settings, and changes their launch binding to the deployed Python adapter under `%LOCALAPPDATA%\CommandCenter\shared-mcp`; original commands and args go in the adjacent version-1 registry. The utility rejects duplicate JSON keys, unsupported server semantics, credentials/environment configuration and mismatched commands. It records DPAPI current-user encrypted original snapshots in a permanent journal before replacing participants. For client configs restricted to the current user, SYSTEM and Administrators, replacement temps and displaced backups live in the dedicated ACL-restricted AppData transaction directory; cross-volume replacements are refused. `ReplaceFileW` retains each displaced file; the utility resets that backup to the private directory ACL, journals/encrypts it before hash comparison, and leaves both versions available when a concurrent writer causes a mismatch. New migrations stop while a prepared transaction is unresolved; recovery is limited to the latest non-rolled-back transaction and preflights all participant hashes before restoring recognized before/after states, including committed transactions. Torn final journal lines are repaired under the lock; displaced artifacts are re-discovered after interruption. The AppData transaction directory ACL is restricted to the current user, SYSTEM and Administrators. Windows replacement is not compare-and-swap: a non-cooperating writer can still race between checks and replacement. Such content is retained and the transaction stops for manual resolution; the utility cannot promise to avoid superseding the active config version.
+
+## tools/shared-mcp-migrate.py:txf_transaction and tools/shared-mcp-migrate.py:txf_step
+
+If either client config grants another principal inherited read or read-and-execute access, all four files share one Windows Transactional NTFS (TxF) transaction. Each existing file keeps its file identity, security descriptor and alternate streams. The tool modifies the default data stream through a transacted writer after checking its path, link count and current bytes. Outside writers conflict while that transaction holds the file. The journal records encrypted original and intended bytes before the native commit. Recovery repeats the content checks inside another transaction and restores all recognized versions together. Unknown content aborts recovery.
+
+This path requires local NTFS with TxF available. Microsoft discourages new dependencies on TxF and warns that future Windows versions may omit it. An unavailable filesystem transaction stops the migration. The Win32 compatibility errors include invalid function (1), unsupported operation (50), unimplemented call (120), inactive resource manager (6801) and remote transactions unsupported (6805). Other Windows errors retain their native diagnostics. [Microsoft TxF isolation and locking](https://learn.microsoft.com/en-us/windows/win32/fileio/txf-basic-concepts) and [CreateFileTransactedW availability](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createfiletransactedw).
+
+## tools/shared-mcp-migrate.py:update_stash and tools/shared-mcp-migrate.py:disabled_claude_guard
+
+A Command Center stash containing the supported global Claude registrations adds a fifth file to the native transaction. Claude and Codex share the disabled gimp launch. The disabled reevesagents launch must also agree with OpenCode. The migration replaces the two launch values in each selected stash entry. Its ID, insertion index, file, scope, empty environment, unrelated entries, formatting and UTF-8 byte-order mark survive. The existing extension toggle restores the stored configuration using those fields. A read-only handle prevents a concurrent update of the global Claude config while migration or rollback verifies both registrations remain disabled.
+
+The stash can be on another local NTFS volume. Each file enlists in the same native transaction. A failure to enlist or commit stops the operation. The stash allowance for an inherited Authenticated Users Modify ACE excludes ownership and ACL changes. The independently validated Codex launch supplies the registry command, and the transaction compares the complete stash bytes through its writer handle before updating them. The journal only contains encrypted stash snapshots. The command accepts an explicit stash path or uses the Command Center root.
+
+## tools/shared-mcp-migrate.py:original_launch and tools/shared-mcp-migrate.py:update_toml
+
+Incremental migration also recognizes disabled f4-re-mcp and rea registrations shared by Codex and the global Claude stash. Their original executable and arguments must agree exactly. Each client keeps its own environment map and passes it to the adapter when launching a server. The registry stores only the executable and arguments. A Claude rea entry can use the implicit stdio transport. OpenCode keeps its existing registrations for these names.
+
+An existing adapter binding resolves through the registry only when its interpreter, adapter location and server name match. The original command remains in the registry across repeated runs. A subsequent migration snapshots the already-migrated state for rollback. When all participant bytes already match the intended result, the command finishes without appending another transaction.
+
+## tools/shared-mcp-migrate.py:ncwe_executable and tools/shared-mcp-migrate.py:update_toml
+
+The disabled ncwe entries must agree on their argument list and environment map. Their drive-qualified Windows executable paths may differ in casing or separator spelling. The registry uses the original Codex spelling. An omitted Codex argument list represents an empty list. Migration inserts the adapter arguments in that server's table, and rollback restores the original bytes.
+
+The disabled blender, agent-interop-runtime and pr-review entries use uvx, node and powershell.exe respectively. The client registrations must agree on the original launch, and Windows executable lookup must find an EXE. A client-specific PATH or PATHEXT override stops migration. The original bare executable remains in the registry, and the native clients keep their environment settings.
+
+## tools/shared-mcp-adapter.py:resolve_bare_exe
+
+Windows bare executable names are launched only when the original client and adapter search paths select the same executable. The launcher passes the original argument vector and preserves the client environment and working directory.
+
+## tools/shared-mcp-migrate.py:txf_step
+
+The final handle path is checked against the expanded Windows long path. A pending new file expands its existing parent before appending its new file name. This accepts the 8.3 spelling used in Windows runner temp directories and retains the reparse-point checks.
+
+## tools/shared-mcp-migrate.py:set_private_acl
+
+Transaction storage receives a protected DACL in one security update. This avoids an intermediate reset to the parent directory's permissions while the journal or legacy displaced files exist.
+
 ## relay/reapply.mjs:main
 Restores the local agent-interop-runtime patches after an `npm install` in the agent-interop folder undoes them. It only copies `pty.js.patched` over `dist/src/pty.js` when the installed file is the known 1.1.0 original (hash match), so a newer runtime is never overwritten blind; port the patch by hand then. Override the runtime path with `AGENT_INTEROP_RUNTIME`. Restart the relay MCP server afterwards.
 
@@ -128,7 +167,7 @@ The patched relay `pty.js` start asks `/spawn-check` before any new Freebuff CLI
 
 ## lib/tasks.mjs:startChild
 
-Headless runs: `codex exec --cd -m -c model_reasoning_effort= -s read-only|workspace-write --skip-git-repo-check -` (prompt on stdin), `opencode run --dir -m --variant high --title`, Cursor via its .ps1 with `-p --trust --workspace [--force] --model --output-format text`. `cursor-agent.cmd` mangles quoted args, so the .ps1 is called directly (`lib/cli.mjs:cursorCmd`). Read tasks drop `--force` and use Codex read-only sandbox.
+Headless runs: `codex exec --cd -m -c model_reasoning_effort= [ -s read-only for read tasks ] --skip-git-repo-check -` (prompt on stdin); write tasks leave sandbox mode and network access to the Codex CLI configuration. They retain `--add-dir <reportsDir>` so Codex can write its report there. OpenCode runs with `opencode run --dir -m --variant high --title`; Cursor runs via its .ps1 with `-p --trust --workspace [--force] --model --output-format text`. `cursor-agent.cmd` mangles quoted args, so the .ps1 is called directly (`lib/cli.mjs:cursorCmd`). Read tasks drop `--force` and use Codex read-only sandbox.
 
 ## lib/sessions.mjs:codexParse
 
@@ -541,7 +580,7 @@ A killed panel does not kill the provider CLI it started: `spawn` children are n
 
 ## lib/tasks.mjs:failCause
 
-On a non-zero exit the task note names the last error-looking line of the log, redacted with `lib/machines.mjs:redact`, instead of only "exit code 1, open the log". The live run showed Codex rejecting the configured model, and the dashboard said nothing about why. Only the last 4000 characters of the log are read and 240 characters kept.
+On a non-zero exit the task note names the last error-looking line of the log, redacted with `lib/machines.mjs:redact`, instead of only "exit code 1, open the log". The live run showed Codex rejecting the configured model, and the dashboard said nothing about why. Only the last 4000 characters of the log are read and 240 characters kept. For the specific Codex `model_not_found` response that reports an unsupported or inaccessible catalog model, `failureDetail` tells the person to choose a model verified in the signed-in account and retry. It does not choose a fallback from the desktop cache because that cache may not reflect account access. `tools/task-errors-check.mjs` covers the classification and verifies that unrelated errors do not trigger it.
 
 ## lib/tasks.mjs:tick (no automatic provider)
 
@@ -742,3 +781,9 @@ The limits check is a pure unit run on a throwaway `CC_ROOT`. Its sections cover
 ## viewer/public/sessions.js:renderSessions and sessTable
 
 The session filter chooses archived visibility before pagination. The table renders that same page without filtering archived rows a second time, so the Done filter and its page count include the same sessions.
+
+`lib/session-origin.mjs:sessionOrigin` associates a Codex failure with the latest timestamped invocation only. The session detail displays the linked failed task's sanitized note when that association is unambiguous.
+
+## lib/config.mjs:DEFAULTS, lib/tasks.mjs:canFallbackOpenCode, lib/tasks.mjs:opencodeAttemptMatch, lib/tasks.mjs:opencodeWorkState, lib/tasks.mjs:queueOpenCodeFallback and lib/sessions.mjs:opencodeSession
+
+The OpenCode default is `opencode/deepseek-v4.1-flash-free`; its paid fallback is `opencode-go/deepseek-v4.1-flash`. The fallback runs only for explicit free-quota errors on the default or worker model, with no task-level model choice, report, assistant text or tool step in the unique session matching task title, working folder and start time. Missing or ambiguous session evidence, prior work, or a prior fallback blocks automatic switching. The task is queued for the paid model so normal per-model concurrency limits still apply. The Codex default remains `gpt-6.1-terra`.

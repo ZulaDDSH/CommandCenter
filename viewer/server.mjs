@@ -9,7 +9,7 @@ import { pick as route } from '../route.mjs';
 import { config, ROOT } from '../lib/config.mjs';
 import { rawLists as sessionLists, details as sessionDetails } from '../lib/sessions.mjs';
 import { capRows, decorate, decorateOne, enrichSession, freebuffEnded, metaFor } from '../lib/session-meta.mjs';
-import { sessionTaskResolver } from '../lib/session-origin.mjs';
+import { sessionOrigin, sessionTaskResolver } from '../lib/session-origin.mjs';
 import * as tasks from '../lib/tasks.mjs';
 import * as setup from '../lib/setup.mjs';
 import { listModels } from '../lib/models.mjs';
@@ -414,8 +414,11 @@ http.createServer(async (req, res) => {
       if (!fn) return send(res, 404, { error: 'unknown provider' });
       const s = fn(q('id'));
       if (!s) return send(res, 404, { error: 'session not found' });
-      const resolveTask = sessionTaskResolver(tasks.list(), tasks.logFile);
+      const allTasks = tasks.list(), resolveTask = sessionTaskResolver(allTasks, tasks.logFile);
       const task = resolveTask(p, s);
+      const id = p === 'codex' ? sessionOrigin(allTasks, tasks.logFile).task(p, s) : task?.id;
+      const failedTask = id ? tasks.get(id) : null;
+      if (failedTask?.status === 'failed') s.failure = tasks.display(failedTask).note || 'This task failed. Open the task log for details.';
       return send(res, 200, task ? decorateOne(p, enrichSession(p, s, task, null)) : s);
     }
     if (u.pathname === '/tasks' && req.method === 'POST') {
