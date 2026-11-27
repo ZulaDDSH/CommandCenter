@@ -330,7 +330,7 @@ http.createServer(async (req, res) => {
       try { const t = tasks.add(input); tasks.tick(); return send(res, 200, t); } catch (e) { return send(res, 400, { error: e.message }); }
     }
     if (u.pathname === '/tasks') {
-      let list = tasks.list();
+      let list = tasks.list().map(tasks.display);
       if (q('parent')) { const kin = new Set([q('parent')]); for (let n = 0; n < 4; n++) for (const t of list) if (kin.has(t.parent)) kin.add(t.id); kin.delete(q('parent')); list = list.filter(t => kin.has(t.id)); }
       if (u.searchParams.has('brief')) list = list.map(({ text, ...t }) => t);
       return send(res, 200, { tasks: list, dispatcher: tasks.state, driver: tasks.freebuffDriver() });
