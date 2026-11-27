@@ -321,3 +321,5 @@ route `POST /director/stage` is the way to add an entry from a running panel.
   - Capabilities are what the peer reports about itself; the host does not probe them.
 - Next: task handoff — a claim that moves a worktree and a supervised provider run to a peer — is the next
   real step, and `claim` stays 501 until that exists.
+- CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45944133896 — success, `108 passed, 0 failed`
+  on `windows-latest`, for commit `c284bcb`. The only later change is this line.
