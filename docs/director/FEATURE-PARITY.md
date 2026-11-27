@@ -181,3 +181,8 @@ reasoning are recorded in `docs/director/STAGES.md`.
    and its own lease, plus a tunnel story that does not expose the panel.
 8. Locate the Garden Engine Attack plan and Runtime map with whoever owns them, then append through
    the same single-writer lock instead of editing in place.
+
+## CI run for these rows
+
+`124 passed, 0 failed` on `windows-latest`, commit `b498e09`:
+https://github.com/ZulaDDSH/CommandCenter/actions/runs/45946597647

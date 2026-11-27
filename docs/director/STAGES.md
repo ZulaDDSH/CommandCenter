@@ -392,3 +392,6 @@ route `POST /director/stage` is the way to add an entry from a running panel.
   map outside the store, which is deliberate.
 - Next: per-task record files (or SQLite) once the store outgrows a single writer, and an fsync plus a
   backup-on-open for power loss.
+- CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45946597647 — success, `124 passed, 0 failed`
+  on `windows-latest`, for commit `b498e09`. The only later change is this line and the same link in
+  `FEATURE-PARITY.md`.
