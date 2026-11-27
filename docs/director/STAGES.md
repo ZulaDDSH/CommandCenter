@@ -473,3 +473,22 @@ were removed so the log has a single writer and no second path that could interl
 - CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45948873083 — success, `132 passed, 0 failed`
   on `windows-latest`, for commit `c58bfba`. The only later change is this line and the same link in
   `FEATURE-PARITY.md`.
+
+## 2026-11-27 — Stage 11: a retry beside a close
+
+- Goal: none. Stage 7 moved every writer onto `update()`; this checks that nothing was left behind and
+  that the last named writer is covered by the race.
+- Exists: the guard was already complete — no `save()`, `flush()` is reachable only from `update`, all
+  18 mutations call `touch()`, `tasks.json` is written only by `lib/tasks.mjs`, and every exported
+  writer goes through `update()`. The race covered add, heartbeat and a same-task field write, so
+  `retry` was the one writer the mission named that no assertion exercised against a concurrent close.
+- Changed: the concurrent-writer section runs a sixth child per round that retries a failed task while
+  the close child closes a different one, and asserts the retry took effect **and** that no close was
+  reverted. No store code changed.
+- Evidence: `node tools/director-check.mjs` → 133 passed, 0 failed (132 before). With
+  `syncFromDisk()` deleted from `update()` in a throwaway copy — the old write-my-stale-array shape —
+  the section fails: `0/5` heartbeats kept, **10 closes lost**, `0/5` titles kept, `0/5` retries took.
+- Limitations: `startChild`'s "status running" write cannot be aimed from a child process because
+  starting a child needs a real provider CLI; `add` stands in for the start write and the panel's own
+  tick is the only place `startChild` runs, on this machine, not across processes.
+- Next: none for store ownership; the remaining risk is a writer added later without `touch()`.

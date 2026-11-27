@@ -112,6 +112,7 @@ Run against a copy of the app in `%TEMP%`, with its own `config.json`, `tasks.js
 | Concurrent closes | two processes importing the store closed different leased tasks with a shared start time, 8 rounds: both stayed closed every round with no refusal and the lock file was gone afterwards |
 | Recovery reads the store, not a snapshot | a direct recoverAtBoot() beside a live holder re-read the file under the same lock, took nothing, and the live task kept its token; the previous snapshot read could take a task whose on-disk lease was live |
 | A lease on another host | a running task leased to other-host with a fresh expiry was not recovered (0 taken), both panel closes were refused 409 lease-foreign, and the row kept its status and token |
+| Retry beside a close | a child process retried a failed task while another closed a different one, every round: the retry took effect and no close was reverted |
 | Concurrent writers, separate processes | 5 rounds of 5 processes each (add, heartbeat, two closes, approve on the same task) with a shared start: every add, lease and close survived, the title written beside a close survived on that task, no writer was refused and no lock file was left |
 | A busy store refuses | with state/store.lock held, a writer was refused (another writer is holding the task store) and the store kept its 26 rows |
 | Stale lock and mid-write store | a lock backdated 90 s was broken and the write succeeded; recovery over a garbage tasks.json.tmp plus a stale lock took the dead task, left the store readable and removed the lock |
