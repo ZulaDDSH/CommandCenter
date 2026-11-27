@@ -143,8 +143,9 @@ class SharedMcpMigrateTests(unittest.TestCase):
         stash_dir = root / "claude-stash"
         stash_dir.mkdir()
         MIGRATE.secure_private_dir(stash_dir)
+        permissions = f"({stash_permissions})" if stash_permissions in ("WDAC", "WO") else stash_permissions
         subprocess.run(
-            [str(MIGRATE.system_tool("icacls.exe")), str(stash_dir), "/grant:r", f"*S-1-5-11:(OI)(CI){stash_permissions}"],
+            [str(MIGRATE.system_tool("icacls.exe")), str(stash_dir), "/grant:r", f"*S-1-5-11:(OI)(CI){permissions}"],
             check=True,
             capture_output=True,
             text=True,
