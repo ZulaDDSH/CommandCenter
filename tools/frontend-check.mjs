@@ -188,6 +188,7 @@ try {
         await teamInput.fill('Director reply check');
         await teamInput.press('Enter');
         await page.locator('.team-view .team-preview').getByText('Director reply check').waitFor({ state: 'visible' });
+        await page.waitForFunction(() => document.querySelector('#team-note')?.value === '');
         assert.equal(await page.locator('#team-note').inputValue(), '');
         await page.locator('.team-row summary').first().click();
         await page.locator('.team-row[open] .team-detail').waitFor({ state: 'visible' });
