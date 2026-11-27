@@ -428,11 +428,11 @@ One POST route, `/session/meta?p=&id=&a=rename|archive|unarchive|delete`, behind
 
 ## viewer/public/sessions.js:sessTable
 
-One table renderer is shared by the Codex, Cursor, OpenCode and Claude tabs. Archived rows are left out unless "Show N archived" is on for that provider. `window.sessReload` is set by whichever list rendered last, so the `#view` modal can refresh the list behind it. The Freebuff sidebar in `viewer/public/app.js` uses its own markup; `/api` adds `label` and `hidden` there so the existing `archived` (report written) keeps its meaning.
+`sessTable` is the one table for the Sessions tab (`PAGES.sessions`), which lists every provider's sessions from `/sessions`, working first, then idle, then finished. Archived rows are left out unless "Show N archived" is on. A Freebuff row opens the Freebuff live view (hash = slug); every other row opens the `#view` modal. Row buttons show on hover. The per-provider tabs and `claude.js` were removed; `GET /claude/state` stays for agents. `window.sessReload` is set by whichever list rendered last, so the `#view` modal can refresh the list behind it. The Freebuff sidebar in `viewer/public/app.js` uses its own markup; `/api` adds `label` and `hidden` there so the existing `archived` (report written) keeps its meaning.
 
-## viewer/public/orch.js:paint
+## viewer/public/director.js:build
 
-The Tasks and Board tabs are gone (user, 2026-11-16: "Tasks/board should all be part of orchestrator and controlled by the ai orchestraror agent, not the user. This is for vibe coders."). The Orchestrator tab now holds, top to bottom: the goal box and live task tree (`window.TASKS` from tasks.js, rendered into `#or-tasks`), the team board read-only (last 20 notes from `/board?json=1`), the budget cards, and the old mode/provider/worker-model form folded into a `<details>` Settings box. tasks.js calls `PAGES.orch(el, true)` every 4.5 s; the `quick` flag skips `/budget` unless 60 s have passed, so the budget is not re-read on every tick. A saved `cc-tab` of `tasks` or `board` is mapped to `orch` in app.js.
+The Orchestrator tab was folded into the Director tab (user, 2026-11-27: the director and the orchestrator are the same thing; the director makes goals, sends sessions to models, everything reports to it and it keeps the person updated). One tab now holds, top to bottom: the chat (thread, composer, status line counting what was handed out), what was handed out, Needs you, then collapsible boxes: the full task tree (`window.TASKS(tasksEl)` from tasks.js, rendered into a persistent element `tasksEl` that `draw` re-attaches after each redraw so the open logs and scroll are not lost), the team board (last 20 notes from `/board?json=1`), the budget cards, and Advanced. The director and its model checkboxes sit in a Settings box together with the default model for each provider (the old Orchestrator worker-model form). The old simple/orchestrated mode switch has no control any more: choosing a director writes mode `orchestrated` (`saveDirector`), while saving the team or the default models keeps the saved mode (`saveOrch`). Antigravity cannot be the director (`lib/routes/orch.mjs`, `lib/tasks.mjs:orch`, the picker): its limit is one task, and a director on it would hold the only slot so every task handed to it would wait forever. The open task logs keep their scroll offsets across a redraw (`keep`/`restore`; browsers reset scrollTop on a re-attached element). A saved `cc-tab` of `tasks`, `board` or `orch` is mapped to `director` in app.js. `viewer/public/orch.js` and `orch.css` are deleted.
 
 ## viewer/public/tasks.js:row
 
@@ -497,7 +497,7 @@ Replaced "every running task becomes failed". A `running`/`starting` record on l
 
 ## lib/machines.mjs:handshake / verifyHello
 
-Two halves of one protocol. The caller signs `hmac(sha256, secret, "<peer id>.<ms>")` and sends it with its own id; the receiver looks the peer up in `machines.json`, checks the timestamp is within 60 s (replay window), recomputes the signature with `CC_PEER_SECRET` — one variable name on every machine, see `lib/machines.mjs:verifyHello` — and compares with `timingSafeEqual`. The verified id is what the row is keyed by: an unlisted caller is added with `learned: true` and no address, and a row's id is never derived from its name. A peer is `online` in the UI only after a successful answer; a missing secret is `unconfigured` and nothing is sent. `machines.json` never holds the secret. The panel still binds 127.0.0.1, so a peer needs a tunnel the user controls.
+Two halves of one protocol. The caller signs `hmac(sha256, secret, "<peer id>.<ms>.<nonce>.<path>.<name>.<sha256 of body>")` (see `lib/machines.mjs:signRequest`, which replaced the older id-and-time-only form) and sends it with its own id; the receiver looks the peer up in `machines.json`, checks the timestamp is within 60 s and that the nonce was not used before, recomputes the signature with `CC_PEER_SECRET` — one variable name on every machine, see `lib/machines.mjs:verifyHello` — and compares with `timingSafeEqual`. The verified id is what the row is keyed by: an unlisted caller is added with `learned: true` and no address, and a row's id is never derived from its name. A peer is `online` in the UI only after a successful answer; a missing secret is `unconfigured` and nothing is sent. `machines.json` never holds the secret. The panel still binds 127.0.0.1, so a peer needs a tunnel the user controls.
 
 ## lib/github.mjs:mergeBlockers
 
@@ -530,3 +530,198 @@ never passes it: `tick` calls `startChild(t, p)` and the override stays null, so
 before the lock, and the locked `syncFromDisk` drops keys the disk row lacks, so the start write persisted
 `running` with no lease until the next heartbeat re-claimed it. Every claim site now sits inside its
 `update`, which is what the race asserts.
+
+## lib/config.mjs:config (unreadable file)
+
+Found by running the panel on a scratch folder: a `config.json` saved with a UTF-8 byte-order mark (Windows PowerShell 5.1 `Set-Content -Encoding utf8` writes one) failed `JSON.parse`, and the catch fell back to the defaults without a word. The panel then ran with every provider switched back on, an empty `projectDir`, and the next `saveConfig` would have overwritten the real file. `config` now strips the mark, records any other parse error in `readError` (a missing file is not an error), and `saveConfig` copies an unreadable file to `config.json.unreadable-<time>` before it writes, so settings are never lost to a bad byte. `lib/director.mjs:snapshot` passes `readError` to the Director tab, which shows it.
+
+## lib/tasks.mjs:recoverAtBoot (orphaned agent)
+
+A killed panel does not kill the provider CLI it started: `spawn` children are not tied to the parent on Windows. `recoverAtBoot` used to mark such a task `interrupted` looking only at the dead panel's pid, so Resume would start a second agent in the same worktree beside the first, the thing the worktree rule forbids. When a task that cannot continue (anything but a Freebuff chat) is marked `interrupted`, it now checks `pidAlive(t.pid)`; if the old process still answers `process.kill(pid, 0)` the task keeps `orphanPid` and its note names the pid. `lib/tasks.mjs:resumeInterrupted` returns `{ orphanAlive }` while that process lives, and `lib/routes/director.mjs` answers 409 with the pid. A pid can be recycled by an unrelated program, so `force: true` on the resume request clears the guard once the person has checked. Nothing is killed automatically: ending a process that might hold unsaved work is the person's call.
+
+## lib/tasks.mjs:failCause
+
+On a non-zero exit the task note names the last error-looking line of the log, redacted with `lib/machines.mjs:redact`, instead of only "exit code 1, open the log". The live run showed Codex rejecting the configured model, and the dashboard said nothing about why. Only the last 4000 characters of the log are read and 240 characters kept.
+
+## lib/tasks.mjs:tick (no automatic provider)
+
+`candidates` leaves Claude out of automatic routing on purpose (Claude runs as the director or when a task names it). With only Claude enabled and no director the waiting reason read "usage still loading", which was false. When `candidates` is empty the reason now says that no provider can take the task by automatic routing and how to fix it.
+
+## lib/director.mjs:snapshot (task rows)
+
+Each goal carries `tasks`: one row per task (the director's own task is flagged `director`) with status, provider, model and a short note (the wait reason for a waiting task, the result note otherwise), live tasks first, capped at 30. `config.readError` is passed along so the tab can warn about an unreadable `config.json`. `viewer/public/director.js:goalCard` renders the rows in plain words.
+
+## viewer/public/director.js:build (simple Director tab)
+
+The tab is a director picker, one message box and a feed. The picker saves the existing orchestrator setting through `POST /orch/config` (mode `orchestrated`, the chosen provider, and any model id typed or picked, since the director may be any model the provider accepts). The message box posts one goal to `POST /director/goal` with provider `auto`, which `lib/tasks.mjs:add` turns into the director's own task; the director then creates the worker tasks through its prompt (`lib/orchestrator.mjs:buildPrompt`). Folder, limits, machines, pull requests and discovered sessions sit in a collapsed Advanced section. `load` re-renders every 12 seconds, so `keep` and `restore` copy form values, focus, selection and the open state of Advanced across the redraw; before this the typed message was wiped while the person was typing.
+
+## lib/github.mjs:mergeBlockers (review bot)
+
+The guard only refused on bad signals, so a pull request with no review-bot check at all passed it. It now also refuses unless the rollup holds a successful status named `reviewBotContext` (default `pr-review/ready-to-merge`) for the head GitHub reports. The bot's findings live in its own UI behind a GitHub sign-in and cannot be read here, so a pass is necessary and not sufficient: the person's approval for that commit (`lib/routes/director.mjs` merge route) is still required, and merging from the panel is still off until `mergeEnabled` is set.
+
+## lib/config.mjs:DEFAULTS (team)
+
+`team` is the list of models the person ticked in the Director tab: `[{ provider, model, effort }]`. Empty means the director may pick any model. `orchestrator.effort` is the director's own reasoning level. Both are saved by `POST /orch/config` (`lib/routes/orch.mjs`), which validates provider, model name (`MODEL_RE`) and effort against `lib/models.mjs:EFFORTS`.
+
+## lib/models.mjs:EFFORTS
+
+Reasoning levels per provider, as each CLI takes them: Claude `--effort` (low, medium, high, xhigh, max), Codex `model_reasoning_effort` (low, medium, high, xhigh), OpenCode `--variant` (low, medium, high, max). Cursor and Freebuff expose no level, so the menu shows none for them and nothing is passed. A level the model itself rejects shows up in the task log and the failure note.
+
+## lib/tasks.mjs:effortFor
+
+The level a task runs at: the director's own task uses `orchestrator.effort`; a worker uses the level of its team entry (same provider and model); otherwise Codex falls back to `models.codexEffort` and OpenCode to `high` (what it was before). The director cannot override a level: the person's menu is the authority. `childCall` turns it into the CLI flag.
+
+## lib/tasks.mjs:teamCheck
+
+When a team is ticked and the task is a child of an orchestrator, `add` and `approve` refuse a provider and model that are not on the team, and refuse a task with no provider and model, with a message that lists the team so the director can correct itself. The steer route in `lib/routes/director.mjs` hands its note to the first team entry for the same reason.
+
+## lib/tasks.mjs:childEnv (login only)
+
+Everything signs in through each provider's own login (Claude and Codex through the browser, Cursor, OpenCode and Freebuff through theirs). A key left in the environment would override that login silently and bill a different account, so `childEnv` removes `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY` and `CURSOR_API_KEY` from what a started agent sees. The panel never reads, stores or asks for a key.
+
+## lib/tasks.mjs:authFailure
+
+A failed run whose last error line looks like a sign-in problem (expired OAuth session, 401, not logged in) sets `needsLogin` on the task and says so in its note. `lib/director.mjs:snapshot` turns that into a "log in" item and `viewer/public/director.js` offers a Log in button that opens the provider's own login in a terminal (`POST /auth`). The panel cannot see whether a login has expired before a run uses it: `lib/setup.mjs` only checks that the credentials file exists, so "signed in" in the menu means "has a login file".
+
+## lib/tasks.mjs:retry (orphan)
+
+Retry used to restart an interrupted task whose old agent process was still alive, which is the case `resumeInterrupted` refuses. It now answers `{ orphanAlive }` the same way unless forced, and drops `orphanPid` when it does restart.
+
+## lib/director.mjs:snapshot (thread)
+
+Each goal carries `thread`: the conversation in order. The person's side is the goal text and every steering note; the director's side is one entry per director task, its final report (first 6000 characters) when it finished, its failure note when it failed, an empty "working" entry while it runs. A goal is one chat: while the director is still working a new message becomes a helper task under it (a running director cannot be messaged), and once the director has finished it starts a new director task on the same goal (`lib/routes/director.mjs` steer route). The chat picker lists goals; "New chat" starts a new goal.
+
+## viewer/public/director.js:chat
+
+The Director tab is a conversation: bubbles from `thread`, a task strip under the latest director bubble, a composer that sends on Enter, the director picker (provider, model, level) and the team menu (a checkbox, level select and sign-in state per model of each enabled provider). `keep` and `restore` keep typed text, focus and scroll across the 12 second redraw.
+
+## Deferred
+
+Not built: a single writer for the Garden Engine board files, a positive review-bot requirement and head-commit pinning in the merge guard, a provider capability table, and remote task claim. They were set aside when the requirement became "pick a director model, tell it what you want". `docs/director/STAGES.md` records them as deferred.
+
+## lib/tasks.mjs:childCall (antigravity)
+
+Antigravity is run only as `agy -p <prompt> --model <slug> --output-format text`, started by the panel as a direct child process. Google's terms (https://antigravity.google/terms section 6, FAQ) bar third-party software from using the login and say wrapping `agy` in other apps is not supported on consumer plans, so the panel never touches the login, never rotates accounts, never uses a key, never passes `--dangerously-skip-permissions`, and runs one task at a time. It is off by default.
+
+## lib/tasks.mjs:OPT_IN
+
+Providers that automatic routing never picks (`candidates`): Claude, and Antigravity because of its terms. They run only when a task or the director's team names them.
+
+## usage/exec.mjs:binOf
+
+Maps a provider id to the program it runs: Antigravity's program is `agy`; `antigravity` alone would find the editor launcher, not the CLI.
+
+## lib/models.mjs:antigravity
+
+Reads `agy models`, which prints one `slug<TAB>name` per line after a "Fetching available models..." line. The reasoning level is part of the slug, so `EFFORTS` has no entry for Antigravity and the route refuses a level for it.
+
+## lib/tasks.mjs:AUTH_RE
+
+Matches only login-specific phrases (an OAuth session or token, an expired session, not logged in, log in again, unauthorized, authentication required, invalid credentials). The first version matched bare words such as "login" and "expired", which labelled ordinary failures as login problems.
+
+## lib/tasks.mjs:effortFor
+
+Uses a saved level only when it is in `EFFORTS` for the provider that actually runs; the director's own level counts only when the director's saved provider is that provider (it can fall back to another one when the saved one is not installed).
+
+## lib/routes/orch.mjs:/orch/config
+
+The older Orchestrator form does not send `team` or `effort`; the route keeps the saved values when those fields are absent, so that form cannot clear the person's choices.
+
+## viewer/public/app.css:root
+
+All colours, fonts and radii live in the `:root` tokens. The old names (`--bg`, `--panel`, `--panel2`, `--line`, `--fg`, `--dim`, `--accent`, `--green`, `--amber`, `--violet`, `--red`) are kept so every other stylesheet and the generated markup keep working; new names are `--ink`, `--raise`, `--line2`, `--paper`, `--live`, `--font`, `--mono`, `--r1`..`--r3` and one `--c-<provider>` per provider. No other stylesheet holds a hex colour. The font is Bahnschrift (ships with Windows 10 and later) with Segoe UI as the fallback; nothing is loaded from the network because the panel is local and private.
+
+## viewer/public/app.css:nav
+
+Tabs are grouped (work, archive and system) with `.sep` spacers that are not `<a>`, because `app.js:setTab` toggles `.on` on `#tabs a` only. There are no per-provider tabs: `app.js` maps a saved `freebuff`, `codex`, `cursor`, `opencode` or `claude` tab to `sessions`. A provider's `--c-<provider>` colour shows only on its `.tk-badge.p-<provider>` badge in `tasks.css`.
+
+## viewer/public/app.css:button.pill
+
+The primary action is paper-white on ink (`.tk-act .pill`, `.pill.primary`); ordinary buttons are outlined. Labels above fields are sentence case, not tracked capitals.
+
+## lib/director.mjs:gate
+
+The goal limits count slots, not queue length. `maxLive` is compared with the OTHER workers of the goal that are `starting` or `running`; a `waiting` task holds no slot, and the task asking to start is never counted against itself. The old rule counted every live worker including the asker and the queue, so with `maxLive=1` the first worker saw itself and could wait for ever. `maxTasks` counts the other workers that already started (`startedAt` set), so tasks that are only queued do not use the budget. The orchestrator is exempt from `maxLive` and from `maxTasks`. `snapshot` reports the same numbers (`usedLive`, `usedTasks`) so the panel and the gate agree. `tools/limits-check.mjs` pins the boundaries for limits of 1 and 4 and runs in CI.
+
+## lib/director.mjs:steerMode
+
+Decides what a reply in the Director chat can really do, from the root director task alone. `live`: the director is a running Freebuff chat, so the text can be typed into it. `amend`: it is queued and has not read its brief yet, so the text is added to the brief. `handoff`: it is a running one-shot run (`codex exec`, `claude -p`, `opencode run`, `cursor -p`, `agy -p`); those read their prompt once at start and have stdin closed, so nothing can reach them. `new-run`: the director ended, so a new director run starts. The route re-checks `live` against the real CLI table before it sends, and falls back to `handoff` when the chat has exited. The snapshot reports the same value as `steering` so the composer can say beforehand what a reply will do.
+
+## lib/director.mjs:handoffText
+
+The brief for a director run that replaces or follows an earlier one: the goal's original text, the earlier steering notes, the id and report path of the earlier director, and the new note. A reply therefore never replaces the goal with only the latest sentence.
+
+## lib/director.mjs:gate
+
+A task with `afterTask` stays waiting while that task is live (`waiting`, `starting`, `running`). It is how a queued hand-off director run avoids editing the same folder as the director it follows. It starts when the earlier task ends in any state, so a failed or cancelled director does not block it for ever.
+
+## lib/routes/director.mjs:/director/goal/:id/steer
+
+The reply is recorded with what happened to it (`delivery`): `sent` (typed into a live Freebuff director, not confirmed), `amended` (added to a director that had not started), `queued` (a new run starts after the running one-shot director ends; the running director has not seen the note), `new-run` (the director had finished) or `failed`. The message to the person says only that. It never says a running worker stopped or changed course, because nothing confirms that. The old route started a separate child task of the running director with only the note, so the original goal was missing and the reply claimed the new task carried it.
+
+## lib/tasks.mjs:sendToDirector
+
+Types text into the live Freebuff CLI that runs the task, using the same `send` the dispatcher uses to start a task. Returns `{ ok: false, why }` when the task is not a live Freebuff chat. A sent line is not a confirmation: the CLI may be mid-turn.
+
+## lib/tasks.mjs:amend
+
+Appends text to a task that is still `waiting`, so the brief it reads at start includes it. Refuses once the task has started.
+
+## lib/tasks.mjs:childCall
+
+A `read` task must not change files, so each provider gets the strongest read-only control its CLI has: Codex `-s read-only` (a sandbox), Claude `--permission-mode plan` with no edit tools allowed, Cursor with no `--force` (changes are not applied), OpenCode `--agent plan`, Antigravity `--mode plan`. Antigravity was started with no mode at all, so it ran with whatever permissions the person had saved. Probe on 2026-11-27 in an empty throwaway git folder: `agy -p ... --mode plan`, told to create a file and then told to run `echo hello > probe2.txt`, wrote nothing either time and answered with a plan artifact to approve. That is the CLI's own mode, not an operating-system sandbox, and a read-only Antigravity task may therefore come back as a plan instead of an answer. Freebuff has no such control: it only gets a `[read]` tag and a sentence in the brief.
+
+## lib/tasks.mjs:READ_ENFORCED
+
+The providers whose own CLI enforces read-only. A `read` task is never routed to Freebuff automatically, and a read task given to Freebuff by name is refused in `add` and failed in `tick`, with the reason, rather than run on a promise in the prompt.
+
+## lib/session-meta.mjs:liveOf
+
+The Sessions screen used to call a session "working" when its file changed in the last 2 minutes. That is recent activity, not a running process. `liveOf` returns one of four values: `running` (the panel found a live process id for the session AND it wrote in the last 2 minutes), `recent` (written in the last 2 minutes, process not checked), `finished` (the transcript itself shows the run completed), `unknown` (no recent write and no completion mark; it may be running, paused, or closed). Only Freebuff chats carry a process id today (found from the CLI's log); Codex, Claude, Cursor and OpenCode history is read from files, so those can never be `running`. The older `state` field stays for the delete guard and the archive worker, which are deliberately cautious about anything recently written.
+
+## lib/session-meta.mjs:decorate
+
+Adds `live` and `liveWhy` to every session row. A history row is read-only: the panel did not start it, so it cannot stop, pause or send to it, and the Sessions screen says so.
+
+## viewer/server.mjs:allSessions
+
+Fetches one more row than it shows per provider. When there are more than 15, the list ends with a note row saying older sessions are not listed, so the limit is visible instead of silent.
+
+## lib/machines.mjs:signRequest
+
+The old signature covered only `<peer id>.<timestamp>`. Anyone who captured one signed hello could replay it for 60 seconds against any route, and the body (the capabilities a machine reports) was not covered at all. The signature now covers the peer id, timestamp, a one-use nonce, the request path and a SHA-256 of the exact body text, so a signed hello cannot be reused on `/machine/claim`, cannot carry a changed body, and cannot be sent twice. This is a prerequisite for remote execution, not remote execution: `/machine/claim` still answers 501.
+
+## lib/machines.mjs:verifyHello
+
+Checks the signed request and remembers each nonce for 2 minutes (kept in memory, so a panel restart forgets them; the 60 second timestamp window still bounds a replay across a restart to one minute).
+
+## lib/director.mjs:steerMode (starting)
+
+A Freebuff director that is still `starting` is treated as a hand-off, not `live`: the CLI exists but the task text may not have been delivered yet, so a typed reply could arrive first or be lost. `lib/tasks.mjs:sendToDirector` also only accepts `running`.
+
+## lib/director.mjs:gate (interrupted earlier director)
+
+An `interrupted` director whose orphan process id is still alive may still be editing the folder, so a queued hand-off keeps waiting for it, the same rule `lib/tasks.mjs:resumeInterrupted` uses.
+
+## lib/routes/director.mjs:/director/goal/:id/steer (goal state)
+
+The gate holds every task of a paused goal and refuses stopped or done ones, so a reply to a stopped or done goal is refused with 409 instead of promising a run, and a reply to a paused goal says the run starts when the goal is resumed.
+
+## lib/session-meta.mjs:capRows
+
+Cuts a provider's list to the limit and appends the one visible note row. The list is fetched with a few spare rows because deleted sessions are dropped after fetching.
+
+## lib/machines.mjs:signRequest (name)
+
+The `x-cc-name` header is part of the signature, because verifyHello uses it to match or learn a listed peer by name.
+
+## tools/director-check.mjs:sign
+
+The signed-request cases build the HMAC string by hand with their own `sign()` instead of calling `lib/machines.mjs:signRequest`, so a change to `signRequest` that no longer matches the documented wire format (`peerId.ts.nonce.path.name.sha256(body)`) fails the check instead of passing against itself.
+
+## tools/limits-check.mjs:gate
+
+The limits check is a pure unit run on a throwaway `CC_ROOT`. Its sections cover `maxLive` 1 and 4, the `maxTasks` boundary (only tasks with a `startedAt` use the budget), the budget view, `steerMode`, `handoffText`, the `afterTask` hold (a queued hand-off waits while the earlier director is live and starts once it ends in any state), and the session status rules (`liveOf`: running only with a live process, recent activity is not a running state; `capRows`).
+
+
+`lib/concurrency.mjs:modelSlots`, `lib/routes/setup.mjs:validate`, and `lib/director.mjs:setMaxLive`: Codex, Cursor, OpenCode, and Claude limits now apply per model, including existing saved provider limits. Freebuff retains a shared CLI limit and Antigravity retains its single-task limit. Existing goals keep their current live-task limits until changed in Director; the global task guard remains 60.

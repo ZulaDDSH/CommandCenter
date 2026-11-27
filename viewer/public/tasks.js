@@ -1,5 +1,5 @@
 (()=>{
-const P={freebuff:'Freebuff',codex:'Codex',cursor:'Cursor',opencode:'OpenCode',claude:'Claude',auto:'Automatic'};
+const P={freebuff:'Freebuff',codex:'Codex',cursor:'Cursor',opencode:'OpenCode',claude:'Claude',antigravity:'Antigravity',auto:'Automatic'};
 const KINDS={code:['Coding','Real changes: features and fixes. Uses the strongest model.'],light:['Small coding','Small, clearly scoped edits. Uses a cheaper, faster model.'],read:['Read only','Looking, summarising and reviewing. The agent may not change files, only write its report.']};
 const j=async u=>{try{return await (await fetch(u)).json()}catch(e){return null}};
 const ms=v=>v&&v<1e11?v*1000:v||0;
@@ -13,9 +13,7 @@ const DOT={running:'live',starting:'idle',waiting:'queued',done:'done',failed:'f
 const dot=s=>'<span class="dot '+(DOT[s]||'queued')+'" title="'+esc(s)+'"></span>';
 const btn=(a,label,id,extra)=>'<button class="pill" data-tk="'+a+'"'+(id?' data-id="'+esc(id)+'"':'')+(extra||'')+'>'+label+'</button>';
 const busy={},last={t:null,ss:null},views={},open=new Set(),shownHtml={};
-let cfgAt=0,cfgVal=null;
 
-async function cfg(){if(cfgVal&&Date.now()-cfgAt<30000)return cfgVal;const s=await j('/setup');if(s?.config){cfgVal=s.config;cfgAt=Date.now()}return cfgVal}
 
 function health(t){
  if(!t)return '<div class="tk-bad"><b>Could not reach the panel server.</b></div>';
@@ -25,7 +23,11 @@ function health(t){
 
 function put(el,key,rootId,html){
  if(shownHtml[key]===html&&el.querySelector('#'+rootId))return;
- const st=el.scrollTop;el.innerHTML=html;shownHtml[key]=html;el.scrollTop=st}
+ const active=el.contains(document.activeElement)?document.activeElement:null;
+ const match=b=>active&&['tk','id','t','p'].every(k=>b.dataset[k]===active.dataset[k]);
+ const index=active?.matches('button[data-tk]')?Array.from(el.querySelectorAll('button[data-tk]')).filter(match).indexOf(active):-1;
+ const st=el.scrollTop;el.innerHTML=html;shownHtml[key]=html;el.scrollTop=st;
+ if(index>=0)Array.from(el.querySelectorAll('button[data-tk]')).filter(match)[index]?.focus({preventScroll:true})}
 
 function hoursCard(u){
  if(!u||u.loading)return card('Freebuff hours left','…','',['Checking…']);
@@ -34,9 +36,9 @@ function hoursCard(u){
  return card('Freebuff hours left',esc(t.left),'of '+esc(t.limit)+' h today',[bar(pct),t.flashHours!=null?'About '+esc(t.flashHours)+' h of DeepSeek work.':'','Cheaper models cost less of these hours.'])}
 
 function routeCard(r){
- if(!r||r.loading)return card('Next task goes to','…','',['Checking usage…']);
- if(r.error)return card('Next task goes to','unknown','',[esc(r.error)]);
- return card('Next task goes to',esc(P[r.provider]||r.provider),esc(r.model),[esc(r.why),'This is for Automatic coding tasks.'])}
+ if(!r||r.loading)return card('Automatic routing','…','',['Checking usage…']);
+ if(r.error)return card('Automatic routing','unknown','',[esc(r.error)]);
+ return card('Automatic routing',esc(P[r.provider]||r.provider),esc(r.model),[esc(r.why),'For automatic coding tasks; Director uses its configured or an available provider.'])}
 
 PAGES.home=async el=>{
  if(busy.home)return;busy.home=1;
@@ -45,35 +47,29 @@ PAGES.home=async el=>{
   if(tab!=='home')return;
   const tasks=t?.tasks||[],run=tasks.filter(isRun).length,wait=tasks.filter(x=>x.status==='waiting').length,fail=tasks.filter(x=>x.status==='failed').length;
   const today=new Date().toDateString(),doneToday=tasks.filter(x=>x.status==='done'&&new Date(ts(x.endedAt)).toDateString()===today).length;
-  const work=(Array.isArray(ss)?ss:[]).filter(s=>s.state==='working'&&!s.archived).sort((a,b)=>ms(b.mtime)-ms(a.mtime));
-  const bits=[];if(run)bits.push(plural(run,'task')+' running');if(wait)bits.push(wait+' waiting');if(work.length)bits.push(plural(work.length,'agent')+' working right now');
+  const work=(Array.isArray(ss)?ss:[]).filter(s=>(s.live==='running'||s.live==='reported'||s.live==='recent')&&!s.archived).sort((a,b)=>ms(b.mtime)-ms(a.mtime));
+  const bits=[];if(run)bits.push(plural(run,'task')+' running');if(wait)bits.push(wait+' waiting');if(work.length)bits.push(plural(work.length,'agent')+' with recent activity');
   const hello=bits.length?bits.join(', '):'All quiet. Nothing is running right now.';
-  const per=['freebuff','codex','cursor','opencode','claude'].map(p=>[p,work.filter(s=>s.provider===p).length]).filter(x=>x[1]);
+  const per=['freebuff','codex','cursor','opencode','claude','antigravity'].map(p=>[p,work.filter(s=>s.provider===p).length]).filter(x=>x[1]);
   const att=tasks.filter(x=>x.note&&(x.status==='failed'||x.status==='waiting'||isRun(x))).sort((a,b)=>(ts(b.endedAt)||ts(b.createdAt))-(ts(a.endedAt)||ts(a.createdAt)));
-  const notes=(Array.isArray(bd)?bd:[]).slice(-5).reverse();
-  const html='<div id="hm-root" class="tk">'+health(t)+'<div class="tk-hello">'+esc(hello)+'</div>'
+  const notes=(Array.isArray(bd)?bd:[]).slice(-3).reverse();
+  const html='<div id="hm-root" class="tk home-page"><div class="cc-pagehead"><div><div class="cc-eyebrow">WORKSPACE / OVERVIEW</div><div class="tk-hello">Your command center</div><p class="cc-lead">'+esc(hello)+'</p></div><div class="cc-quick">'+btn('tab','Open Director','',' data-t="director"')+btn('tab','Browse sessions','',' data-t="sessions"')+'</div></div>'+health(t)
    +'<div class="cards">'
    +card('Tasks',String(run),'running',[wait+' waiting in line',doneToday+' finished today',fail+' failed'])
-   +card('Agents working now',String(work.length),'',per.length?per.map(x=>esc(P[x[0]])+': '+x[1]):['Nobody is working.'])
+   +card('Agents with recent activity',String(work.length),'',per.length?per.map(x=>esc(P[x[0]])+': '+x[1]):['No recent activity.'])
    +routeCard(r)+hoursCard(u)+'</div>'
-   +(att.length?'<div class="tk-h">Needs a look</div>'+att.slice(0,5).map(x=>'<div class="tk-att"><div>'+dot(x.status)+'<b>'+esc(x.title)+'</b> <span class="m">'+esc(x.status)+(x.ranOn?' on '+esc(P[x.ranOn]||x.ranOn):'')+'</span></div><div class="tk-note">'+esc(x.note)+'</div><div>'+(x.status==='failed'&&!x.parent?btn('retry','Retry',x.id)+' ':'')+btn('tab','Open Orchestrator','',' data-t="orch"')+'</div></div>').join('')+(att.length>5?'<div class="m">'+(att.length-5)+' more on the Orchestrator tab.</div>':''):'')
-   +(tasks.some(isRun)?'<div class="tk-h">Tasks running</div><div class="tk-rows">'+tasks.filter(isRun).slice(0,20).map(x=>'<div class="tk-row" data-tk="tab" data-t="orch">'+badge(x.ranOn||x.provider)+'<span class="tk-rt">'+(x.role==='orchestrator'?'Orchestrator: ':'')+esc(x.title)+'</span><span class="m">'+esc(x.model||x.modelPref||'')+'</span><span class="m">'+(x.expiresAt?'<b>'+esc(left(x.expiresAt))+' left</b>':x.ranOn==='freebuff'?'no hour yet':'')+'</span></div>').join('')+'</div>':'')
-   +'<div class="tk-h">Working right now</div>'
-   +(work.length?'<div class="tk-rows">'+work.slice(0,40).map(s=>'<div class="tk-row" data-tk="open" data-p="'+esc(s.provider)+'" data-id="'+esc(s.id)+'">'+badge(s.provider)+'<span class="tk-rt">'+esc(String(s.title||s.id).slice(0,90))+'</span><span class="m tk-rf" title="'+esc(s.cwd||'')+'">'+esc(short(s.cwd))+'</span><span class="m">'+(ms(s.mtime)?ago(ms(s.mtime)):'')+'</span></div>').join('')+'</div>':'<div class="tk-empty">No agent is working right now.</div>')
-   +'<div class="tk-h">Latest board notes '+btn('tab','Open Orchestrator','',' data-t="orch"')+'</div>'
+   +(att.length?'<div class="tk-h">Needs a look</div>'+att.slice(0,5).map(x=>'<div class="tk-att"><div>'+dot(x.status)+'<b>'+esc(x.title)+'</b> <span class="m">'+esc(x.status)+(x.ranOn?' on '+esc(P[x.ranOn]||x.ranOn):'')+'</span></div><div class="tk-note">'+esc(x.note)+'</div><div>'+(x.status==='failed'&&!x.parent?btn('retry','Retry',x.id)+' ':'')+btn('tab','Open Director','',' data-t="director"')+'</div></div>').join('')+(att.length>5?'<div class="m">'+(att.length-5)+' more on the Director tab.</div>':''):'')
+   +(tasks.some(isRun)?'<div class="tk-h">Tasks running</div><div class="tk-rows">'+tasks.filter(isRun).slice(0,20).map(x=>'<button type="button" class="tk-row" data-tk="tab" data-t="director" data-id="'+esc(x.id)+'">'+badge(x.ranOn||x.provider)+'<span class="tk-rt">'+(x.role==='orchestrator'?'Director: ':'')+esc(x.title)+'</span><span class="m">'+esc(x.model||x.modelPref||'')+'</span><span class="m">'+(x.expiresAt?'<b>'+esc(left(x.expiresAt))+' left</b>':x.ranOn==='freebuff'?'no hour yet':'')+'</span></button>').join('')+'</div>':'')
+   +'<div class="tk-h">Recent activity (last 2 minutes)</div>'
+   +(work.length?'<div class="tk-rows">'+work.slice(0,40).map(s=>'<button type="button" class="tk-row" data-tk="open" data-p="'+esc(s.provider)+'" data-id="'+esc(s.id)+'">'+badge(s.provider)+'<span class="tk-rt">'+esc(String(s.title||s.id).slice(0,90))+'</span><span class="m tk-rf" title="'+esc(s.cwd||'')+'">'+esc(short(s.cwd))+'</span><span class="m">'+(ms(s.mtime)?ago(ms(s.mtime)):'')+'</span></button>').join('')+'</div>':'<div class="tk-empty">No agent has written in the last 2 minutes.</div>')
+   +'<div class="tk-h">Latest board notes '+btn('tab','Open Director','',' data-t="director"')+'</div>'
    +(notes.length?notes.map(n=>'<div class="note"><div class="m"><b>'+esc(n.from)+'</b> · '+when(n.at)+'</div><div class="t">'+md(String(n.text).slice(0,300)+(String(n.text).length>300?'…':''))+'</div></div>').join(''):'<div class="tk-empty">No notes yet.</div>')
    +'</div>';
   put(el,'home','hm-root',html);
  }finally{busy.home=0}};
 
-const FORM='<form id="tk-form" class="tk-box"><div class="hl">What do you want done?</div>'
- +'<textarea id="tk-text" rows="4" placeholder="Describe it in plain words, like you would to a person. For example: add a dark mode switch to the settings page."></textarea>'
- +'<label>Project folder<input id="tk-cwd" placeholder="The folder the agents work in"></label>'
- +'<div class="m">The AI orchestrator plans the work, picks the agents and models, approves their sub-tasks and checks what they report. You only watch.</div>'
- +'<div class="tk-act"><button class="pill" id="tk-go">Start</button><span id="tk-msg" class="m"></span></div></form>';
-
 function build(el){
- el.innerHTML='<div id="tk-root" class="tk"><div id="tk-health"></div>'+FORM+'<div id="tk-list"></div></div>'}
+ el.innerHTML='<div id="tk-root" class="tk"><div id="tk-health"></div><div id="tk-list"></div></div>'}
 
 function row(t){
  const b=[];
@@ -85,8 +81,8 @@ function row(t){
   if(s)b.push('<button class="pill" data-tk="open" data-p="opencode" data-id="'+esc(s.id)+'">Open session</button>')}
  const note=[t.status==='waiting'&&t.reason?esc(t.reason):'',t.note?'<span class="'+(t.status==='failed'?'tk-err':'')+'">'+esc(t.note)+'</span>':''].filter(Boolean).join('<br>');
  const d=Math.min(t.depth||0,3),pt=t.parent&&last.t?.tasks?.find(x=>x.id===t.parent);
- let r='<tr><td>'+dot(t.status)+'</td><td class="tk-title" style="padding-left:'+(8+d*18)+'px">'+(d?'<span class="m">↳ </span>':'')+(t.role==='orchestrator'?'<span class="tk-badge">Orchestrator</span> ':'')+'<b>'+esc(t.title)+'</b><div class="m">'+esc(t.hold?'waiting for the orchestrator':t.status)+(pt?' · sub-task of '+esc(String(pt.title).slice(0,40)):'')+'</div></td>'
-  +'<td>'+esc(t.role==='orchestrator'?'Orchestrator':(KINDS[t.kind]||[t.kind])[0])+'</td>'
+ let r='<tr><td>'+dot(t.status)+'</td><td class="tk-title" style="padding-left:'+(8+d*18)+'px">'+(d?'<span class="m">↳ </span>':'')+(t.role==='orchestrator'?'<span class="tk-badge">Director</span> ':'')+'<b>'+esc(t.title)+'</b><div class="m">'+esc(t.hold?'waiting for the director':t.status)+(pt?' · sub-task of '+esc(String(pt.title).slice(0,40)):'')+'</div></td>'
+  +'<td>'+esc(t.role==='orchestrator'?'Director':(KINDS[t.kind]||[t.kind])[0])+'</td>'
   +'<td>'+esc(P[t.provider]||t.provider)+(t.ranOn?' → <b>'+esc(P[t.ranOn]||t.ranOn)+'</b>':'')+((t.model||t.modelPref)?'<div class="m">'+esc(t.model||t.modelPref)+'</div>':'')+(t.expiresAt?'<div class="m"><b>'+esc(left(t.expiresAt))+' left</b> in this Freebuff hour</div>':'')+'</td>'
   +'<td class="m" title="'+esc(t.cwd||'')+'">'+esc(short(t.cwd))+'</td>'
   +'<td class="m"><div>Created '+at(t.createdAt)+'</div>'+(t.startedAt?'<div>Started '+at(t.startedAt)+'</div>':'')+(t.endedAt?'<div>Ended '+at(t.endedAt)+'</div>':'')+'</td>'
@@ -108,20 +104,22 @@ function tree(list){
 
 function group(title,list,empty){
  list=tree(list);
- return '<div class="tk-h">'+title+' ('+list.length+')</div>'+(list.length?'<table class="ss tk-table"><thead><tr><th></th><th>Task</th><th>Kind</th><th>Provider</th><th>Folder</th><th>Times</th><th>Note</th><th></th></tr></thead><tbody>'+list.map(row).join('')+'</tbody></table>':'<div class="tk-empty">'+empty+'</div>')}
+ return '<div class="tk-h">'+title+' ('+list.length+')</div>'+(list.length?'<div class="tk-scroll-hint">Scroll horizontally to see all task details.</div><div class="tk-table-wrap" tabindex="0" role="region" aria-label="'+title+' tasks"><table class="ss tk-table"><thead><tr><th></th><th>Task</th><th>Kind</th><th>Provider</th><th>Folder</th><th>Times</th><th>Note</th><th></th></tr></thead><tbody>'+list.map(row).join('')+'</tbody></table></div>':'<div class="tk-empty">'+empty+'</div>')}
 
 function paint(){
- const root=$('tk-root');if(!root||tab!=='orch')return;
- const t=last.t,tasks=t?.tasks||[],c=cfgVal;
+ const root=$('tk-root');if(!root||tab!=='director')return;
+ const t=last.t,tasks=t?.tasks||[];
  $('tk-health').innerHTML=health(t);
- const f=$('tk-cwd');if(c&&!f.dataset.touched&&!f.value&&c.projectDir)f.value=c.projectDir;
  const list=$('tk-list'),sl=getSelection();
  if(sl&&!sl.isCollapsed&&list.contains(sl.anchorNode))return;
  const run=tasks.filter(isRun).sort((a,b)=>ts(a.startedAt)-ts(b.startedAt)),wait=tasks.filter(x=>x.status==='waiting');
  const fin=tasks.filter(x=>['done','failed','cancelled','interrupted'].includes(x.status)).sort((a,b)=>(ts(b.endedAt)||ts(b.createdAt))-(ts(a.endedAt)||ts(a.createdAt))).slice(0,30);
  const saved={};for(const p of list.querySelectorAll('pre[data-k]'))saved[p.dataset.k]=[p.scrollTop,p.scrollHeight-p.scrollTop-p.clientHeight<30];
+ const scroll=Object.fromEntries(Array.from(list.querySelectorAll('.tk-table-wrap'),p=>[p.getAttribute('aria-label'),p.scrollLeft]));
+ const focused=document.activeElement?.classList.contains('tk-table-wrap')?document.activeElement.getAttribute('aria-label'):null;
  const el=$('prov'),st=el.scrollTop;
  list.innerHTML=group('Running',run,'No task is running.')+group('Waiting in line',wait,'Nothing is waiting.')+group('Finished (newest first)',fin,'No finished tasks yet.');
+ list.querySelectorAll('.tk-table-wrap').forEach(p=>{const label=p.getAttribute('aria-label');p.scrollLeft=scroll[label]||0;if(label===focused)p.focus({preventScroll:true})});
  for(const p of list.querySelectorAll('pre[data-k]')){const o=saved[p.dataset.k];p.scrollTop=!o||o[1]?p.scrollHeight:o[0]}
  el.scrollTop=st}
 
@@ -130,7 +128,7 @@ async function fetchView(id){
  if(d&&d.task)views[id]=d}
 
 async function load(){
- const [t,,ss]=await Promise.all([j('/tasks?brief=1'),cfg(),j('/sessions')]);
+ const [t,ss]=await Promise.all([j('/tasks?brief=1'),j('/sessions')]);
  if(t)last.t=t;if(Array.isArray(ss))last.ss=ss;
  const tasks=last.t?.tasks||[];
  await Promise.all([...open].map(id=>{const x=tasks.find(y=>y.id===id);if(!x){open.delete(id);delete views[id];return}
@@ -143,23 +141,6 @@ window.TASKS=async el=>{
   if(!el.querySelector('#tk-root'))build(el);
   await load();
  }finally{busy.tasks=0}};
-
-const say=(cls,txt)=>{const m=$('tk-msg');if(m){m.className=cls;m.textContent=txt}};
-
-document.addEventListener('submit',async e=>{
- if(e.target.id!=='tk-form')return;e.preventDefault();
- const text=$('tk-text').value.trim();
- if(!text)return say('tk-err','Write what the agent should do.');
- const sub=$('tk-go');sub.disabled=true;say('m','Adding…');
- try{
-  const r=await fetch('/tasks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text,cwd:$('tk-cwd').value.trim()})});
-  const d=await r.json().catch(()=>({error:'The server sent a bad answer.'}));
-  if(!r.ok||d.error)say('tk-err',d.error||'Could not start it.');
-  else{$('tk-text').value='';say('tk-ok',d.role==='orchestrator'?'Started. The orchestrator is planning it.':'Started. Simple mode is on, so one agent does it without an orchestrator.');await load()}
- }catch(err){say('tk-err','Could not reach the server: '+err.message)}
- finally{const g=$('tk-go');if(g)g.disabled=false}});
-
-document.addEventListener('input',e=>{if(e.target.id==='tk-cwd')e.target.dataset.touched='1'});
 
 document.addEventListener('click',async e=>{
  const b=e.target.closest('[data-tk]');if(!b)return;
@@ -178,9 +159,9 @@ document.addEventListener('click',async e=>{
  const d=r?await r.json().catch(()=>null):null;
  if(!r||!r.ok||!d||d.error)alert(d?.error||'Could not reach the server.');
  if(a==='retry')delete views[id];
- if(tab==='home')PAGES.home($('prov'));else if(tab==='orch')load();
+ if(tab==='home')PAGES.home($('prov'));else if(tab==='director'&&$('tk-root'))load();
 });
 
-const refresh=()=>{if(tab==='home'||tab==='orch')PAGES[tab]?.($('prov'),true)};
+const refresh=()=>{if(tab==='home')PAGES.home($('prov'),true)};
 setInterval(refresh,4500);refresh();setTimeout(refresh,1500);
 })();

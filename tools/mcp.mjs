@@ -7,7 +7,7 @@ const SCRIPT_HELP = `Run a JavaScript async function body that does many reads, 
 
 const TOOLS = [
   { name: 'run_script', description: SCRIPT_HELP, inputSchema: { type: 'object', properties: { code: { type: 'string', description: 'Async function body; use return to give the result.' }, cwd: { type: 'string', description: 'Folder for relative paths (default: server folder).' }, timeout_ms: { type: 'number', description: 'Stop the script after this long (default 60000).' } }, required: ['code'] } },
-  { name: 'cc_task_add', description: 'Queue a task in the Command Center. It starts on the best free provider.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, prompt: { type: 'string' }, provider: { type: 'string', enum: ['freebuff', 'codex', 'cursor', 'opencode', 'claude'] }, model: { type: 'string' }, cwd: { type: 'string' }, parent: { type: 'string' } }, required: ['title', 'prompt'] } },
+  { name: 'cc_task_add', description: 'Queue a task in the Command Center. It starts on the best free provider.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, prompt: { type: 'string' }, provider: { type: 'string', enum: ['freebuff', 'codex', 'cursor', 'opencode', 'claude', 'antigravity'] }, model: { type: 'string' }, cwd: { type: 'string' }, parent: { type: 'string' } }, required: ['title', 'prompt'] } },
   { name: 'cc_board_post', description: 'Post a short note on the shared team board. Never post secrets.', inputSchema: { type: 'object', properties: { text: { type: 'string' }, from: { type: 'string' } }, required: ['text'] } },
   { name: 'cc_budget', description: 'Show provider usage and which provider the next task would go to.', inputSchema: { type: 'object', properties: {} } },
 ];

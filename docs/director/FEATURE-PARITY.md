@@ -58,6 +58,7 @@ machine. What it avoids: an unbuildable rewrite and a second source of truth for
 |---|---|---|
 | Restart recovery | Every `running` task became `failed` | Freebuff tasks continue the same chat; others become `interrupted` and wait for a person |
 | Orchestrator control | No pause, no goal limits, `hold` was advisory | Goals with pause/resume/stop/steer and per-goal live and task limits |
+| One tab for director and orchestrator | Separate Orchestrator and Director tabs | One Director tab: chat, status line, task tree, board, budget, default models (`viewer/public/director.js`) |
 | Concurrency ownership | One process assumed; a second panel could start the same tasks, and any writer could close one | Closed in Stage 4: a close must present the current lease token, else it is refused as `lease-lost`, `lease-expired` or `lease-foreign` and nothing is written; one dispatcher per folder via `state/panel.lock` |
 | Worktrees | App never made one; tasks edited the main checkout | `git/<task-id>` per task, refuse a folder this task did not create |
 | Costs | Per provider only | Per goal: live/task counts and run minutes; hours stay provider-level and are labelled as such |
@@ -68,6 +69,8 @@ machine. What it avoids: an unbuildable rewrite and a second source of truth for
 | Capability | Where |
 |---|---|
 | Goals with priority, status, limits, steering notes | `lib/director.mjs`, `POST /director/goal` |
+| Director chat with a model menu (tick the models the director may use, reasoning level per model, sign-in state and Log in per provider) | `viewer/public/director.js`, `lib/tasks.mjs:teamCheck`, `lib/tasks.mjs:effortFor` |
+| Antigravity CLI (agy) as an opt-in provider, run directly, one task at a time, off by default (terms read 2026-11-27) | `lib/tasks.mjs:childCall`, `lib/models.mjs:antigravity`, `lib/setup.mjs` |
 | Dependencies between tasks (`dependsOn`) and a gate the dispatcher obeys | `lib/director.mjs:gate`, `lib/tasks.mjs` |
 | "Needs you" list (approval, interrupted, failed, overrun, paused, no hours) | `lib/director.mjs:snapshot` |
 | Result evidence (report, exit code, worktree head, dirty files) | same |
@@ -75,7 +78,7 @@ machine. What it avoids: an unbuildable rewrite and a second source of truth for
 | Machine inventory and signed hello | `lib/machines.mjs`, `POST /machine/hello` — one `CC_PEER_SECRET` with the same name on both machines; the peer id is the one it signed with, learned on first contact |
 | Pairing is one rule | a machine listed by label and address alone has no id; after its signed hello the host holds the id it signed with, the entry is authenticated, and no peer row carries a per-machine variable name |
 | PR / head / review / public CI visibility | `lib/github.mjs` (read-only `gh`) |
-| Merge approval pinned to a commit, with review-bot and CI guardrails | `POST /director/merge-approval`, `/director/merge` |
+| Merge approval pinned to a commit; refuses without a successful review-bot status, and on failing CI (the bot's findings are not readable here) | `POST /director/merge-approval`, `/director/merge` |
 | Append-only stage log with one writer | no code writer: `POST /director/stage` and `lib/director.mjs:appendStage` were removed, the route answers 404 and nothing else writes the file |
 
 ### Missing, and deliberately not faked

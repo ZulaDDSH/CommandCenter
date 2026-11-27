@@ -8,7 +8,7 @@ import { all as providerUsage } from '../usage/providers.mjs';
 import { pick as route } from '../route.mjs';
 import { config, ROOT } from '../lib/config.mjs';
 import { lists as sessionLists, details as sessionDetails } from '../lib/sessions.mjs';
-import { decorate, metaFor } from '../lib/session-meta.mjs';
+import { capRows, decorate, metaFor } from '../lib/session-meta.mjs';
 import * as tasks from '../lib/tasks.mjs';
 import * as setup from '../lib/setup.mjs';
 import { listModels } from '../lib/models.mjs';
@@ -236,7 +236,8 @@ function loadSessions() {
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const staticFile = p => p === '/' ? 'index.html' : /^\/[\w-]+\.(js|css)$/.test(p) && fs.existsSync(path.join(PUBLIC, p.slice(1))) ? p.slice(1) : null;
 const ROUTES = [];
-for (const f of fs.readdirSync(path.join(ROOT, 'lib/routes')).filter(f => f.endsWith('.mjs')).sort()) ROUTES.push((await import(pathToFileURL(path.join(ROOT, 'lib/routes', f)).href)).default);
+const ROUTES_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../lib/routes');
+for (const f of fs.readdirSync(ROUTES_DIR).filter(f => f.endsWith('.mjs')).sort()) ROUTES.push((await import(pathToFileURL(path.join(ROUTES_DIR, f)).href)).default);
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
 const sameOrigin = req => !req.headers.origin || [`http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`].includes(req.headers.origin);
 const send = (res, code, body, type = 'application/json') => { res.writeHead(code, { 'content-type': type }); res.end(typeof body === 'string' ? body : JSON.stringify(body)); };
@@ -248,13 +249,13 @@ const readBody = (req, max) => new Promise((ok, fail) => {
 const openTerminal = (title, cmd) => { const c = spawn('cmd.exe', ['/c', `start "${title}" cmd /k ${cmd}`], { windowsVerbatimArguments: true, detached: true, stdio: 'ignore' }); c.on('error', e => console.error(`terminal: ${e.message}`)); c.unref(); };
 process.on('uncaughtException', e => console.error(`uncaught: ${e.stack ?? e}`));
 
+const SESS_LIMIT = 50;
 let sessCache = { at: 0, body: '[]' };
 function allSessions() {
   if (Date.now() - sessCache.at < 15000) return sessCache.body;
-  const out = decorate('freebuff', loadSessions().filter(s => !s.archived).map(s => ({ provider: 'freebuff', id: s.slug, title: s.title ?? s.slug, cwd: worktree(s.slug), mtime: s.mtime, state: !s.queued && Date.now() - s.mtime < 120000 ? 'working' : 'idle' })));
+  const out = decorate('freebuff', loadSessions().filter(s => !s.archived).map(s => ({ provider: 'freebuff', id: s.slug, title: s.title ?? s.slug, cwd: worktree(s.slug), mtime: s.mtime, pid: s.queued ? null : chatPid(s.dir), state: !s.queued && Date.now() - s.mtime < 120000 ? 'working' : !s.expiresAt && Date.now() - s.mtime > 72e5 ? 'done' : 'idle' })));
   for (const [p, fn] of Object.entries(sessionLists)) {
-    if (!config().providers[p]) continue;
-    try { out.push(...fn(15)); } catch (e) { out.push({ provider: p, id: '', title: `Could not read ${p} sessions: ${e.message}`, state: 'done', mtime: 0 }); }
+    try { out.push(...capRows(p, fn(SESS_LIMIT + 6), SESS_LIMIT)); } catch (e) { out.push({ provider: p, id: '', title: `Could not read ${p} sessions: ${e.message}`, state: 'done', mtime: 0 }); }
   }
   sessCache = { at: Date.now(), body: JSON.stringify(out) };
   return sessCache.body;
@@ -329,7 +330,7 @@ http.createServer(async (req, res) => {
       try { const t = tasks.add(input); tasks.tick(); return send(res, 200, t); } catch (e) { return send(res, 400, { error: e.message }); }
     }
     if (u.pathname === '/tasks') {
-      let list = tasks.list();
+      let list = tasks.list().map(tasks.display);
       if (q('parent')) { const kin = new Set([q('parent')]); for (let n = 0; n < 4; n++) for (const t of list) if (kin.has(t.parent)) kin.add(t.id); kin.delete(q('parent')); list = list.filter(t => kin.has(t.id)); }
       if (u.searchParams.has('brief')) list = list.map(({ text, ...t }) => t);
       return send(res, 200, { tasks: list, dispatcher: tasks.state, driver: tasks.freebuffDriver() });
@@ -337,7 +338,10 @@ http.createServer(async (req, res) => {
     const tm = /^\/tasks\/([\w-]+)\/(cancel|retry|done)$/.exec(u.pathname);
     if (tm && req.method === 'POST') {
       if (tm[2] === 'retry') {
-        const t = tasks.retry(tm[1]);
+        let force = false;
+        try { force = JSON.parse((await readBody(req, 2000)).trim() || '{}').force === true; } catch {}
+        const t = tasks.retry(tm[1], { force });
+        if (t?.orphanAlive) return send(res, 409, { error: `The agent process ${t.orphanAlive} from before the restart is still running and may still be editing the folder. End it first, or retry anyway with force.`, orphanPid: t.orphanAlive });
         if (t) tasks.tick();
         return t ? send(res, 200, t) : send(res, 400, { error: 'That task cannot do that now.' });
       }

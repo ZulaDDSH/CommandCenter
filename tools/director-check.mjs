@@ -298,6 +298,10 @@ try {
   must('GET /usage?p=codex returns JSON', uCodex.status === 200 && !!uCodex.body, `HTTP ${uCodex.status}`);
   const sess = await until(async () => { const r = await http(port1, '/sessions'); return r.status === 200 ? r : null; }, 45000);
   must('GET /sessions returns a list', !!sess && Array.isArray(sess.body), sess ? `HTTP ${sess.status}, ${sess.body.length} row(s)` : 'did not answer within 45 s');
+  const sessRows = (sess?.body ?? []).filter(s => s.id);
+  must('every session row says running, recent, unknown or finished, never a bare "working"', sessRows.every(s => ['running', 'reported', 'recent', 'unknown', 'finished'].includes(s.live) && s.liveWhy), JSON.stringify(sessRows.find(s => !s.live)));
+  must('no history session claims to be running without a process id', sessRows.every(s => s.live !== 'running' || s.provider === 'freebuff'));
+  must('a provider that returned more than 50 sessions ends with a visible limit note', Object.entries(sessRows.filter(s => s.provider !== 'freebuff').reduce((a, s) => (a[s.provider] = (a[s.provider] ?? 0) + 1, a), {})).every(([p, n]) => n <= 50) && (sess?.body ?? []).filter(s => !s.id && s.note).every(s => /latest 50/.test(s.title)));
 
   console.log('\nMachine inventory and the signed hello');
   const peerName = 'check-peer';
@@ -309,18 +313,37 @@ try {
   const inv0 = await getJson(port1, '/director/machines');
   must('it is reported offline, not online', !!inv0?.peers?.length && inv0.peers.every(p => p.status !== 'online'), (inv0?.peers ?? []).map(p => p.status).join(','));
 
-  const ts = Date.now();
-  const goodSig = crypto.createHmac('sha256', PEER_VALUE).update(`${peerId}.${ts}`).digest('hex');
-  const hello = await http(port1, '/machine/hello', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cc-peer': peerId, 'x-cc-name': peerName, 'x-cc-ts': String(ts), 'x-cc-sig': goodSig }, body: '{}' });
+  const ts = Date.now();  const sign = (id, t, nonce, p, raw, name = '') => crypto.createHmac('sha256', PEER_VALUE).update([id, t, nonce, p, name, crypto.createHash('sha256').update(raw).digest('hex')].join('.')).digest('hex');
+  const signedHeaders = (t, nonce, p, raw, name) => ({ 'content-type': 'application/json', 'x-cc-peer': peerId, ...(name ? { 'x-cc-name': name } : {}), 'x-cc-ts': String(t), 'x-cc-nonce': nonce, 'x-cc-sig': sign(peerId, t, nonce, p, raw, name ?? '') });
+  const rawHello = '{}', nonce1 = 'a1'.repeat(12);
+  const goodSig = sign(peerId, ts, nonce1, '/machine/hello', rawHello);
+  const hello = await http(port1, '/machine/hello', { method: 'POST', headers: signedHeaders(ts, nonce1, '/machine/hello', rawHello, peerName), body: rawHello });
   must('a correctly signed hello is accepted', hello.status === 200 && !!hello.body?.capabilities, hello.body?.error ?? `HTTP ${hello.status}`);
   const inv1 = await getJson(port1, '/director/machines');
   must('only then is the machine reported online', inv1?.peers?.[0]?.status === 'online', inv1?.peers?.[0]?.status ?? 'none');
   must('the host learned the id the machine signs with', inv1?.peers?.[0]?.id === peerId, inv1?.peers?.[0]?.id ?? 'none');
   must('pairing uses one secret name, not one per machine', (inv1?.peers ?? []).every(p => !('secretEnv' in p)));
-  const badHello = await http(port1, '/machine/hello', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cc-peer': peerId, 'x-cc-ts': String(ts), 'x-cc-sig': '00'.repeat(32) }, body: '{}' });
+  const badHello = await http(port1, '/machine/hello', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cc-peer': peerId, 'x-cc-ts': String(ts), 'x-cc-nonce': 'b2'.repeat(12), 'x-cc-sig': '00'.repeat(32) }, body: '{}' });
   must('a bad signature is refused', badHello.status === 403, `HTTP ${badHello.status}`);
-  const staleHello = await http(port1, '/machine/hello', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cc-peer': peerId, 'x-cc-ts': String(Date.now() - 120000), 'x-cc-sig': goodSig }, body: '{}' });
-  must('a replayed old timestamp is refused', staleHello.status === 400, `HTTP ${staleHello.status}`);
+  const staleTs = Date.now() - 120000, staleNonce = 'c3'.repeat(12);
+  const staleHello = await http(port1, '/machine/hello', { method: 'POST', headers: signedHeaders(staleTs, staleNonce, '/machine/hello', rawHello), body: rawHello });
+  must('a correctly signed hello with an old timestamp is refused', staleHello.status === 400, `HTTP ${staleHello.status}`);
+  const replay = await http(port1, '/machine/hello', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cc-peer': peerId, 'x-cc-ts': String(ts), 'x-cc-nonce': nonce1, 'x-cc-sig': goodSig }, body: rawHello });
+  must('the same signed hello sent twice is refused the second time', replay.status === 409, `HTTP ${replay.status}`);
+  const tsB = Date.now(), nonceB = 'd4'.repeat(12);
+  const otherPath = await http(port1, '/machine/claim', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cc-peer': peerId, 'x-cc-ts': String(tsB), 'x-cc-nonce': nonceB, 'x-cc-sig': sign(peerId, tsB, nonceB, '/machine/hello', rawHello) }, body: rawHello });
+  must('a signature made for the hello cannot be used on the claim route', otherPath.status === 403, `HTTP ${otherPath.status}`);
+  const tsC = Date.now(), nonceC = 'e5'.repeat(12);
+  const changedBody = await http(port1, '/machine/hello', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cc-peer': peerId, 'x-cc-ts': String(tsC), 'x-cc-nonce': nonceC, 'x-cc-sig': sign(peerId, tsC, nonceC, '/machine/hello', rawHello) }, body: '{"capabilities":{"claim":{"supported":true}}}' });
+  must('a signed hello with a changed body is refused', changedBody.status === 403, `HTTP ${changedBody.status}`);
+  const tsD = Date.now(), nonceD = 'f6'.repeat(12);
+  const claimOk = await http(port1, '/machine/claim', { method: 'POST', headers: signedHeaders(tsD, nonceD, '/machine/claim', '{"task":null}'), body: '{"task":null}' });
+  must('a correctly signed claim is still refused as unsupported (no remote execution exists)', claimOk.status === 501 && claimOk.body?.supported === false, `HTTP ${claimOk.status}`);
+  const inv2 = await getJson(port1, '/director/machines');
+  must('the refused changed-body hello stored no capabilities from its body', !inv2?.peers?.[0]?.capabilities?.claim, JSON.stringify(inv2?.peers?.[0]?.capabilities ?? null));
+  const tsE = Date.now(), nonceE = '17'.repeat(12);
+  const renamed = await http(port1, '/machine/hello', { method: 'POST', headers: { ...signedHeaders(tsE, nonceE, '/machine/hello', rawHello, peerName), 'x-cc-name': 'someone-else' }, body: rawHello });
+  must('a signed hello with its name header changed in transit is refused', renamed.status === 403, `HTTP ${renamed.status}`);
 
   console.log('\nOne goal end to end');
   const mk = await postJson(port1, '/director/goal', {
@@ -457,6 +480,32 @@ try {
   const dash2 = await getJson(port2, '/director');
   const agent2 = ((dash2?.goals ?? []).find(g => g.id === goal2)?.agents ?? []).find(a => a.taskId === task2);
   must('the Director panel shows that worktree and owner', !!agent2?.worktree && !!agent2?.leaseOwner, `${agent2?.worktree ?? 'no worktree'} / ${agent2?.leaseOwner ?? 'no owner'}`);
+
+  console.log('\nA reply to a running one-shot director is not claimed as delivered');
+  must('the dashboard says a reply to this running codex run becomes a hand-off', (dash2?.goals ?? []).find(g => g.id === goal2)?.steering?.mode === 'handoff', JSON.stringify((dash2?.goals ?? []).find(g => g.id === goal2)?.steering));
+  const noText = await postJson(port2, `/director/goal/${goal2}/steer`, { text: '   ' });
+  must('an empty reply is refused', noText.status === 400, `HTTP ${noText.status}`);
+  const reply = await postJson(port2, `/director/goal/${goal2}/steer`, { text: 'Also write the result to NOTES.md.' });
+  must('a reply is accepted', reply.status === 200 && !!reply.body?.task?.id, `HTTP ${reply.status} ${reply.body?.error ?? ''}`);
+  must('it is reported as queued, not sent', reply.body?.delivery?.mode === 'queued', JSON.stringify(reply.body?.delivery));
+  must('the message says the running director has not received it', /NOT received/.test(reply.body?.note ?? ''), reply.body?.note ?? '');
+  const handoffId = reply.body?.task?.id;
+  const handoff = (await getJson(port2, '/tasks'))?.tasks?.find(x => x.id === handoffId);
+  must('the hand-off carries the original goal and the new note', /Stay running long enough to be killed\./.test(handoff?.text ?? '') && /Also write the result to NOTES\.md\./.test(handoff?.text ?? ''), (handoff?.text ?? '').slice(0, 120));
+  must('the hand-off waits behind the running director', handoff?.afterTask === task2, handoff?.afterTask ?? 'no afterTask');
+  const heldReason = await until(async () => {
+    const t = (await getJson(port2, '/tasks'))?.tasks?.find(x => x.id === handoffId);
+    return t?.status === 'waiting' && /Waiting for the running director/.test(t.reason ?? '') ? t : null;
+  }, 15000);
+  must('the dispatcher keeps it waiting with that reason', !!heldReason, heldReason?.reason ?? 'it did not stay waiting');
+  must('the running director was not stopped or changed', (await getJson(port2, '/tasks'))?.tasks?.find(x => x.id === task2)?.status === 'running');
+  const thread = ((await getJson(port2, '/director'))?.goals ?? []).find(g => g.id === goal2)?.thread ?? [];
+  must('the chat records what happened to the reply', thread.some(m => m.who === 'you' && /Also write the result/.test(m.text) && /NOT received/.test(m.delivery ?? '')), JSON.stringify(thread.map(m => m.delivery)));
+  await postJson(port2, `/tasks/${handoffId}/cancel`, {});
+
+  console.log('\nRead-only is refused where it cannot be enforced');
+  const roFree = await postJson(port2, '/tasks', { text: 'Look only.', title: 'read-only freebuff check', provider: 'freebuff', kind: 'read' });
+  must('a read-only task for Freebuff is refused with the reason', roFree.status === 400 && /cannot enforce a read-only task/.test(roFree.body?.error ?? ''), `HTTP ${roFree.status} ${roFree.body?.error ?? ''}`);
 
   console.log('\nLease fencing (a writer that does not hold the lease cannot close the task)');
   const beforeKill = readStore().find(x => x.id === task2);
