@@ -59,7 +59,7 @@ const fbLeftCell=s=>{
  return s.hourOver?'<div class="fb-left is-over">hour ended</div>':'';
 };
 window.sessTable=list=>{
- const rows=list.filter(s=>s.id&&(!s.archived||showArch)).sort((a,b)=>(RANK[a.live]??4)-(RANK[b.live]??4)||b.mtime-a.mtime);
+ const rows=list.filter(s=>s.id).sort((a,b)=>(RANK[a.live]??4)-(RANK[b.live]??4)||b.mtime-a.mtime);
  return list.filter(s=>!s.id).map(s=>'<div class="'+(s.note?'pg-hint':'tk-warn')+'">'+esc(s.title)+'</div>').join('')
   +'<table class="ss" aria-label="Sessions"><thead><tr><th scope="col">Select</th><th>Agent</th><th>Doing</th><th>Folder</th><th>Last activity</th><th>State</th><th></th></tr></thead><tbody>'
   +rows.map(s=>'<tr class="srow'+(s.archived?' arch':'')+'" data-p="'+esc(s.provider)+'" data-id="'+esc(s.id)+'"><td><input type="checkbox" data-session-select aria-label="Select '+esc(s.title||s.id)+'"'+(selected.has(sessionKey(s))?' checked':'')+(s.archived||bulkBusy?' disabled':'')+'></td><td><span class="tk-badge p-'+esc(s.provider)+'">'+esc(AGENT[s.provider]||s.provider)+'</span></td><td class="st"><button type="button" class="session-open" data-session-open>'+esc(s.title||s.id)+'</button>'+(s.model?'<div class="m">'+esc(s.model)+'</div>':'')+'</td><td title="'+esc(s.cwd)+'">'+esc(last2(s.cwd))+'</td><td>'+esc(recent(s.mtime))+'</td><td class="sst">'+dot(s.live||'idle',s.liveWhy)+fbLeftCell(s)+'</td><td class="sact"><button class="pill" data-a="rename">Rename</button><button class="pill" data-a="'+(s.archived?'unarchive':'archive')+'">'+(s.archived?'Unarchive':'Archive')+'</button><button class="pill" data-a="delete">Delete</button></td></tr>').join('')+'</tbody></table>'};

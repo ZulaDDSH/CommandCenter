@@ -193,15 +193,18 @@ try {
         await page.locator('.team-row[open] .team-detail').waitFor({ state: 'visible' });
         await page.locator('[data-session-provider="all"]').click();
         assert.equal(await page.locator('.srow[data-id="auto-done-0"]').count(), 0);
+        await page.locator('#session-search').fill('Auto archived session');
         await page.locator('[data-tog="1"]').click();
         await page.locator('.srow[data-id="auto-done-0"] [data-a="unarchive"]').waitFor({ state: 'visible' });
         await page.locator('[data-tog="1"]').click();
+        await page.locator('#session-search').fill('');
         await page.locator('#session-state').selectOption('finished');
         assert.match(await page.locator('.sess-all .archive-pager span').innerText(), /27 matching · page 1 of 2/);
         await page.locator('.srow[data-id="finished-0"] .sst').getByText('done', { exact: true }).waitFor({ state: 'visible' });
         await page.locator('.srow[data-id="finished-0"] [data-session-select]').check();
         await page.locator('[data-session-page="next"]').click();
         assert.match(await page.locator('.sess-all .archive-pager span').innerText(), /page 2 of 2/);
+        await page.locator('.srow[data-id="auto-done-0"] [data-a="unarchive"]').waitFor({ state: 'visible' });
         await page.locator('.srow[data-id="finished-25"] [data-session-select]').check();
         assert.match(await page.locator('[data-archive-selected]').innerText(), /2/);
         const dialogs = [];

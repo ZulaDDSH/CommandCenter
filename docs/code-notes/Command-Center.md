@@ -732,3 +732,7 @@ The limits check is a pure unit run on a throwaway `CC_ROOT`. Its sections cover
 `lib/session-origin.mjs:sessionOrigin` scopes session discovery to recorded Command Center task IDs and explicit provider evidence. Codex uses session IDs printed in task logs; OpenCode uses the task ID in its generated title; Claude and Cursor use the exact task-file pointer in their initial prompt; Freebuff uses its task segment. Retries can change the current provider, so historical links do not depend on `ranOn`. Runs without surviving evidence cannot be linked, and provider history is never altered by filtering.
 
 `usage/providers.mjs:opencode` reads the documented OpenCode Go usage windows using the existing local Go key. Percentages represent shared plan usage across Go models. Authentication and network failures are shown without exposing the key; the other providers' unavailable account limits are not inferred from spending.
+
+## viewer/public/sessions.js:renderSessions and sessTable
+
+The session filter chooses archived visibility before pagination. The table renders that same page without filtering archived rows a second time, so the Done filter and its page count include the same sessions.
