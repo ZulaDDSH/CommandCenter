@@ -23,3 +23,6 @@ jobs:
           python-version: '3.12'
       - name: Test shared MCP adapter
         run: python tools/shared-mcp-adapter-test.py
+      - name: Test shared MCP migration on Windows
+        if: runner.os == 'Windows'
+        run: python tools/shared-mcp-migrate-test.py
