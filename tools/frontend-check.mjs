@@ -44,7 +44,7 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       const body = JSON.parse(raw);
       if (url.pathname === '/orch/config') orch = { ...orch, ...body };
-      else if (body.providers) Object.assign(config.providers, body.providers);
+      else { if (body.providers) Object.assign(config.providers, body.providers); if (body.maxParallel) Object.assign(config.maxParallel, body.maxParallel); }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(url.pathname === '/orch/config' ? orch : setup));
     });
@@ -73,6 +73,7 @@ try {
     archivedFixture.clear();
     archiveRequests.length = 0;
     config.providers.codex = true;
+    config.maxParallel.codex = 2;
     orch.orchestrator = { mode: 'orchestrated', provider: 'codex' };
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     const errors = [];
@@ -189,6 +190,9 @@ try {
         await page.getByText('Project & limits').click();
         await page.getByLabel('Project folder').waitFor({ state: 'visible' });
         await page.screenshot({ path: `frontend-artifacts/${width}-setup-project.png` });
+        const modelLimit = page.getByLabel('Codex tasks per model');
+        await Promise.all([page.waitForResponse(r => r.url().endsWith('/setup') && r.request().method() === 'POST'), modelLimit.selectOption('10')]);
+        assert.equal(config.maxParallel.codex, 10);
         const codex = page.getByLabel('Codex', { exact: true });
         await Promise.all([page.waitForResponse(r => r.url().endsWith('/setup') && r.request().method() === 'POST'), codex.locator('..').click()]);
         await page.waitForFunction(() => document.querySelector('#pg-saved')?.textContent.includes('Saved'));

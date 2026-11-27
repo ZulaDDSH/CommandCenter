@@ -20,6 +20,14 @@ const worker = (g, d, status, extra = {}) => ({ id: `w${++n}`, status, goal: g.i
 const setup = limits => { const g = mk(limits), d = dir(g); D.linkTask(g.id, d.id); return { g, d, list: [d] }; };
 
 {
+  const g = mk({ maxLive: 4 });
+  must('goal limit can be raised to 10', D.setMaxLive(g.id, 10).limits.maxLive === 10);
+  let refused = false; try { D.setMaxLive(g.id, 61); } catch { refused = true; }
+  must('goal limit rejects values above 60', refused && D.goal(g.id).limits.maxLive === 10);
+}
+
+
+{
   const { g, d, list } = setup({ maxLive: 1, maxTasks: 24 });
   const a = worker(g, d, 'waiting'); list.push(a);
   must('maxLive 1: the only waiting worker may start', D.gate(a, list) === null, D.gate(a, list));

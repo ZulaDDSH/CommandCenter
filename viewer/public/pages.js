@@ -80,7 +80,7 @@ function foldersCard() {
   const projOpts = [...(proj ? [] : [['', 'Pick a project…']]), ...F.repos.map(r => [r.path, `${r.name}   (${r.path})`])];
   const inside = proj ? `${slash(proj).replace(/\/+$/, '')}/.cc-reports` : '';
   const repOpts = [...(inside ? [[inside, 'Inside the project (.cc-reports)']] : []), [`${root}/reports`, 'In the Command Center folder (reports)']];
-  const par = ['codex', 'cursor', 'opencode', 'claude', 'antigravity'].map(k => fld(`${NAMES[k]} tasks at once`, select(`maxParallel.${k}`, c.maxParallel[k], range(0, k === 'antigravity' ? 1 : 4), `${NAMES[k]} tasks at once`, 'int'), `How many ${NAMES[k]} tasks may run together. 0 means none.`)).join('');
+  const par = ['codex', 'cursor', 'opencode', 'claude', 'antigravity'].map(k => fld(`${NAMES[k]} tasks per model`, select(`maxParallel.${k}`, c.maxParallel[k], range(0, k === 'antigravity' ? 1 : 10), `${NAMES[k]} tasks per model`, 'int'), k === 'antigravity' ? 'One Antigravity task total; 0 means none.' : `How many tasks may run on each ${NAMES[k]} model. 0 means none.`)).join('');
   const mods = [['codex', 'Codex model'], ['codexEffort', 'Codex effort'], ['cursor', 'Cursor model'], ['opencode', 'OpenCode model'], ['claude', 'Claude model'], ['antigravity', 'Antigravity model']]
     .map(([k, l]) => fld(l, select(`models.${k}`, c.models[k], modelList(M, k).map(x => [x, x]), l), k === 'codexEffort' ? 'How hard Codex thinks.' : `The model used for panel tasks.`)).join('');
   return `<div class="pg-card pg-wide"><div class="pg-ch"><b>Folders and limits</b></div>
@@ -88,7 +88,7 @@ function foldersCard() {
 ${fld('Project folder', `${select('projectDir', proj, projOpts, 'Project folder')} ${pickBtn('project')}`, proj ? `Tasks run in ${esc(proj)} unless you pick another. Repos are found next to it and in your Projects or source folders.` : 'The folder your code lives in. Pick a repo from the list or choose a folder.')}
 ${fld('Reports folder', `${select('reportsDir', c.reportsDir, repOpts, 'Reports folder')} ${pickBtn('reports')}`, 'Where agents write their finished reports.')}
 ${fld('Relay program folder', `<code class="pg-path">${esc(S.prereqs.runtime.detail)}</code> ${pickBtn('runtime')}${c.runtimeDir ? ' <button class="pill" data-reset="runtimeDir">Use the default</button>' : ''}`, c.runtimeDir ? 'A folder you chose. The default lives inside the Command Center folder.' : 'The default place, inside the Command Center folder.')}
-${fld('Freebuff CLIs at most', select('maxClis', c.maxClis, range(1, 6), 'Freebuff CLIs at most', 'int'), 'The most Freebuff windows open at once, counting any you started yourself.')}
+${fld('Freebuff CLIs at most', select('maxClis', c.maxClis, range(1, 10), 'Freebuff CLIs at most', 'int'), 'The most Freebuff windows open at once, counting any you started yourself.')}
 ${par}
 ${fld('Mark a task as stuck after', select('stuckAfterMin', c.stuckAfterMin, [30, 60, 90, 120, 180].map(n => [n, `${n} minutes`]), 'Mark a task as stuck after', 'int'), 'A running task older than this gets a note on the Director tab. It is not stopped.')}
 ${mods}

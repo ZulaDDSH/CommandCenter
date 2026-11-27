@@ -722,3 +722,6 @@ The signed-request cases build the HMAC string by hand with their own `sign()` i
 ## tools/limits-check.mjs:gate
 
 The limits check is a pure unit run on a throwaway `CC_ROOT`. Its sections cover `maxLive` 1 and 4, the `maxTasks` boundary (only tasks with a `startedAt` use the budget), the budget view, `steerMode`, `handoffText`, the `afterTask` hold (a queued hand-off waits while the earlier director is live and starts once it ends in any state), and the session status rules (`liveOf`: running only with a live process, recent activity is not a running state; `capRows`).
+
+
+`lib/concurrency.mjs:modelSlots`, `lib/routes/setup.mjs:validate`, and `lib/director.mjs:setMaxLive`: Codex, Cursor, OpenCode, and Claude limits now apply per model, including existing saved provider limits. Freebuff retains a shared CLI limit and Antigravity retains its single-task limit. Existing goals keep their current live-task limits until changed in Director; the global task guard remains 60.

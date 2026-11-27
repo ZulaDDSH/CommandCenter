@@ -75,7 +75,8 @@ function money(b){
   else if(p==='cursor'&&e.enabled)lines=[e.signedIn?'signed in':'not signed in'];
   else if(p==='opencode'&&e.enabled)lines=e.today?['spent today '+esc(e.today.cost),'last 7 days '+esc(e.week&&e.week.cost)]:[];
   else if(e.enabled)lines=[esc(e.note||'')];
-  return '<div class="dr-usage-row"><div class="dr-usage-head"><b>'+esc(NAMES[p])+'</b><span class="dr-usage-state'+(e.enabled&&e.installed?' is-on':'')+'">'+esc(state)+'</span></div><div class="dr-usage-meta">'+esc(e.running)+' / '+esc(e.max)+' running</div>'+(lines.length?'<div class="dr-usage-details">'+lines.map(x=>'<div>'+x+'</div>').join('')+'</div>':'')+'</div>'}).join('')}
+  if(p!=='freebuff'&&p!=='antigravity'&&e.modelCounts)lines.push(...e.modelCounts.map(x=>esc(x.model||'Unknown model')+': '+esc(x.count)+' running'));
+  return '<div class="dr-usage-row"><div class="dr-usage-head"><b>'+esc(NAMES[p])+'</b><span class="dr-usage-state'+(e.enabled&&e.installed?' is-on':'')+'">'+esc(state)+'</span></div><div class="dr-usage-meta">'+esc(e.running)+' running · limit '+esc(e.max)+(p==='freebuff'||p==='antigravity'?' total':' per model')+'</div>'+(lines.length?'<div class="dr-usage-details">'+lines.map(x=>'<div>'+x+'</div>').join('')+'</div>':'')+'</div>'}).join('')}
 
 function boardHtml(){
  if(!Array.isArray(board))return '<div class="tk-empty">Board not read yet.</div>';
@@ -143,6 +144,7 @@ function build(){
   if(g.controls.canStop)b.push(btn('stop',g.id,'Stop'));
   if(g.status==='active')b.push(btn('done',g.id,'Mark done'));
   if(b.length)h+='<div class="dr-act">'+b.join(' ')+'</div>';
+  h+='<div class="dr-act"><label>Live task limit <input id="dr-current-max" type="number" min="1" max="60" value="'+esc(g.budget?.maxLive ?? 4)+'"></label> <button type="button" class="pill" data-d="goal-limit" data-id="'+esc(g.id)+'">Save limit</button></div>';
   h+=work(g);}
  h+='</div><div class="director-side"><div class="director-side-head"><span class="dr-overline">WORKSPACE</span><h2>Team &amp; controls</h2><p>Everything you need alongside the conversation.</p></div><div class="director-controls">'+[['models','Models'],['tasks','Tasks'],['board','Notes'],['budget','Usage'],['advanced','Settings']].map(([id,label])=>'<button type="button" id="dr-panel-'+id+'" class="director-control'+(panel===id?' selected':'')+'" data-panel="'+id+'" aria-pressed="'+(panel===id)+'">'+label+'</button>').join('')+'</div>'+(!panel?'<div class="director-placeholder"><b>Choose a view</b><p>Manage models, follow tasks, or check usage without leaving the conversation.</p></div>':'')+settings;
  if(need.length)h+='<div class="tk-h">Needs you</div>'+need.map(n=>'<div class="tk-att"><div><b>'+esc(n.goal)+'</b></div><div class="tk-note">'+esc(n.detail)+' '+needBtn(n)+'</div></div>').join('');
@@ -151,7 +153,7 @@ function build(){
  h+='<details id="dr-bu" class="dr-ev"'+section('budget')+'><summary>Usage</summary><h3>Provider usage</h3><p class="dr-panel-hint">Availability and current capacity by provider.</p>'+(budget&&budget.providers?'<div class="dr-usage-list">'+money(budget)+'</div>':'<div class="empty">Usage not available.</div>')+'</details>';
  const ghErr=d.github&&d.github.error;
  h+='<details id="dr-adv" class="dr-ev"'+section('advanced')+'><summary>Settings</summary><h3>Settings</h3>'
-  +'<div class="dr-form"><div class="hl">Where the director works (used by a new chat)</div><div class="dr-grid"><label>Folder<input id="dr-dir" value="'+esc((d.config&&d.config.projectDir)||'')+'"></label><label>Live tasks allowed<input id="dr-max" type="number" min="1" max="12" value="4"></label><label>Task minutes<input id="dr-min" type="number" min="5" max="1440" value="120"></label><label>Priority<select id="dr-pri">'+[1,2,3,4,5].map(n=>'<option value="'+n+'"'+(n===3?' selected':'')+'>'+PR[n]+'</option>').join('')+'</select></label></div></div>'
+  +'<div class="dr-form"><div class="hl">Where the director works (used by a new chat)</div><div class="dr-grid"><label>Folder<input id="dr-dir" value="'+esc((d.config&&d.config.projectDir)||'')+'"></label><label>Live tasks allowed<input id="dr-max" type="number" min="1" max="60" value="10"></label><label>Task minutes<input id="dr-min" type="number" min="5" max="1440" value="120"></label><label>Priority<select id="dr-pri">'+[1,2,3,4,5].map(n=>'<option value="'+n+'"'+(n===3?' selected':'')+'>'+PR[n]+'</option>').join('')+'</select></label></div></div>'
   +'<div class="tk-h">Machines</div>'+machinesCard(d.machines)
   +'<div class="tk-h">Pull requests and CI</div>'+(ghErr?'<div class="tk-warn">'+esc(ghErr)+'</div>':ghCard(d.github))
   +'</details></div></div></div>';
@@ -182,7 +184,7 @@ function draw(force){
  const el=$('prov');if(!el||tab!=='director')return;
  if(!d){el.innerHTML='<div class="empty">'+esc(err||'The director did not answer.')+'</div>';return}
  const f=document.activeElement;
- if(!force&&(saving||(f&&el.contains(f)&&(f.tagName==='SELECT'||f.closest('.model-picker')))))return;
+ if(!force&&(saving||(f&&el.contains(f)&&(f.tagName==='SELECT'||f.id==='dr-current-max'||f.closest('.model-picker')))))return;
  const top=el.scrollTop,k=keep();el.innerHTML=build();const ph=$('dr-tasks');if(ph&&ph!==tasksEl)ph.replaceWith(tasksEl);restore(k);el.scrollTop=top}
 
 async function load(){
@@ -296,6 +298,7 @@ document.addEventListener('click',async e=>{
   if(!r.ok)alert((r.body&&r.body.error)||'Could not do that.');
   return load()}
  if(a==='approve-task'||a==='refuse-task'){const r=await post('/tasks/'+encodeURIComponent(id)+'/'+(a==='approve-task'?'approve':'cancel'),{});if(!r.ok)alert((r.body&&r.body.error)||'Could not do that.');return load()}
+ if(a==='goal-limit'){const n=Number($('dr-current-max').value),r=await post('/director/goal/'+encodeURIComponent(id)+'/limit',{maxLive:n});if(!r.ok){alert((r.body&&r.body.error)||'Could not save the limit.');return}msg='Live task limit saved.';return load()}
  if(a==='stop'){if(!confirm('Stop this chat? Its live tasks are cancelled; finished work is kept.'))return;const r=await post('/director/goal/'+encodeURIComponent(id)+'/stop',{});if(!r.ok)alert((r.body&&r.body.error)||'Could not stop it.');return load()}
  if(a==='pause'||a==='resume'||a==='done'){const r=await post('/director/goal/'+encodeURIComponent(id)+'/'+a,{});if(!r.ok)alert((r.body&&r.body.error)||'Could not do that.');return load()}
  if(a==='approve-merge'){
