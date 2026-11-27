@@ -313,6 +313,9 @@ def secure_private_dir(directory):
     subprocess.run([icacls, str(directory), "/reset"], capture_output=True, text=True, check=True)
     subprocess.run([icacls, str(directory), "/inheritance:r", "/grant:r", *grants], capture_output=True, text=True, check=True)
     subprocess.run([icacls, str(directory), "/verify"], capture_output=True, text=True, check=True)
+    fd, probe = tempfile.mkstemp(prefix=".acl-check-", dir=directory)
+    os.close(fd)
+    Path(probe).unlink()
     candidates = [directory / name for name in ("registry.json", "shared-mcp-adapter.py", "transactions.jsonl", "migration.lock")]
     candidates.extend(directory.glob("*.displaced"))
     candidates.extend(directory.glob("*.cc-*"))
@@ -328,9 +331,12 @@ def secure_private_file(file, grants=None):
         sid = current_sid()
         grants = [f"*{sid}:(OI)(CI)F", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"]
     icacls = str(system_tool("icacls.exe"))
+    file_grants = [f"{grant.split(':', 1)[0]}:F" for grant in grants]
     subprocess.run([icacls, str(file), "/reset"], capture_output=True, text=True, check=True)
-    subprocess.run([icacls, str(file), "/inheritance:r", "/grant:r", *grants], capture_output=True, text=True, check=True)
+    subprocess.run([icacls, str(file), "/inheritance:r", "/grant:r", *file_grants], capture_output=True, text=True, check=True)
     subprocess.run([icacls, str(file), "/verify"], capture_output=True, text=True, check=True)
+    with file.open("r+b"):
+        pass
 
 
 def system_tool(name):

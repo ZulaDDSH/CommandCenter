@@ -340,23 +340,25 @@ class SharedMcpMigrateTests(unittest.TestCase):
             private = Path(directory) / "private-state"
             private.mkdir()
             subprocess.run(
-                ["icacls.exe", str(private), "/grant", "*S-1-1-0:(OI)(CI)M"],
+                [str(MIGRATE.system_tool("icacls.exe")), str(private), "/grant:r", "*S-1-1-0:(OI)(CI)M"],
                 check=True,
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
-            before = self.explicit_acl_sids(private)
-            self.assertIn("S-1-1-0", before)
+            before = self.acl_sddl(private)
+            self.assertTrue(";;;WD)" in before or ";;;S-1-1-0)" in before)
             MIGRATE.secure_private_dir(private)
-            after = self.explicit_acl_sids(private)
-            self.assertNotIn("S-1-1-0", after)
+            after = self.acl_sddl(private)
+            self.assertNotIn(";;;WD)", after)
+            self.assertNotIn(";;;S-1-1-0)", after)
 
-    def explicit_acl_sids(self, directory):
+    def acl_sddl(self, directory):
         command = (
+            "$ErrorActionPreference = 'Stop'; "
             "$acl = Get-Acl -LiteralPath $env:MIGRATION_TEST_ACL_PATH; "
-            "$acl.Access | Where-Object { -not $_.IsInherited } | "
-            "ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value }"
+            "if ($null -eq $acl) { throw 'Could not read directory ACL.' }; "
+            "$acl.Sddl"
         )
         result = subprocess.run(
             [str(Path(os.environ["SystemRoot"]) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"), "-NoProfile", "-NonInteractive", "-Command", command],
@@ -366,7 +368,7 @@ class SharedMcpMigrateTests(unittest.TestCase):
             timeout=15,
             env={**os.environ, "MIGRATION_TEST_ACL_PATH": str(directory)},
         )
-        return set(result.stdout.splitlines())
+        return result.stdout.strip()
 
 
 if __name__ == "__main__":
