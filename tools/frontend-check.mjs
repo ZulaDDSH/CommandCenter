@@ -51,11 +51,13 @@ try {
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     const pages = [['home', '#hm-root'], ['director', '#dr-root'], ['sessions', '.session-table-wrap'], ['archive', '.archive'], ['ext', '.ext'], ['guide', '#pg-guide'], ['debug', '#pg-debug'], ['setup', '#pg-setup']];
-    for (const [tab, selector] of pages) {
+    for (const [index, [tab, selector]] of pages.entries()) {
+      if (index) await page.locator('#prov').evaluate(el => { el.scrollTop = el.scrollHeight; });
       await page.locator(`#tabs [data-t="${tab}"]`).click();
       await page.locator(selector).waitFor({ state: 'visible' });
       if (tab === 'ext') await page.locator('.ext .xsec').first().waitFor({ state: 'visible' });
       if (tab === 'debug') await page.locator('#pg-dbody .pg-tbl').first().waitFor({ state: 'visible' });
+      assert.equal(await page.locator('#prov').evaluate(el => el.scrollTop), 0, `${tab} should open at the top`);
       await page.screenshot({ path: `frontend-artifacts/${width}-${tab}.png` });
       const overflow = await page.locator('#prov').evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
       assert.ok(overflow.scroll <= overflow.width + 1, `${tab} overflows at ${width}px: ${JSON.stringify(overflow)}`);
@@ -70,6 +72,10 @@ try {
         if (width === 390) assert.ok(sizes.scroll > sizes.width, 'Task table should scroll inside its panel at narrow widths');
         const panel = await page.locator('#prov').evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
         assert.ok(panel.scroll <= panel.width + 1, `Director tasks overflow the page at ${width}px: ${JSON.stringify(panel)}`);
+        if (width === 390) {
+          await page.locator('#prov').evaluate(el => { el.scrollTop = el.scrollHeight; });
+          assert.ok(await page.locator('#prov').evaluate(el => el.scrollTop) > 0, 'Director fixture must scroll before testing navigation');
+        }
       }
       if (tab === 'sessions') {
         await page.locator('.session-open').first().click();

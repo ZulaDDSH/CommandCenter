@@ -79,8 +79,9 @@ const card=(title,big,sub,lines)=>'<div class="hours"><div class="hl">'+title+'<
 const bar=pct=>'<div class="bar"><i style="width:'+Math.max(0,Math.min(100,pct))+'%"></i></div>';
 window.PAGES={};
 function prov(){if(tab!=='freebuff')PAGES[tab]?.($('prov'))}
-function setTab(t){tab=t;try{localStorage.setItem('cc-tab',t)}catch(e){}
+function setTab(t){const changed=tab!==t;tab=t;try{localStorage.setItem('cc-tab',t)}catch(e){}
  document.body.classList.toggle('other',t!=='freebuff');
+ if(changed)$('prov').scrollTop=0;
   if(data.length){const v=shown();if(v.length&&!v.some(x=>x.slug===sel)){sel=v[0].slug;feed()}list();header()}document.querySelectorAll('#tabs a').forEach(a=>{const active=a.dataset.t===(t==='freebuff'?'sessions':t);a.classList.toggle('on',active);if(active)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});prov()}
 $('tabs').onclick=e=>{const a=e.target.closest('[data-t]');if(a)setTab(a.dataset.t)};
 $('tabs').onkeydown=e=>{const a=e.target.closest('[data-t]');if(a&&(e.key==='Enter'||e.key===' ')){e.preventDefault();setTab(a.dataset.t)}};
