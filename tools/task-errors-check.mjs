@@ -79,7 +79,7 @@ try {
     cancel(dispatchTask.id, 'Isolated fallback dispatch check cleanup.');
   }
 
-  fs.mkdirSync(path.join(root, 'logs'));
+  fs.mkdirSync(path.join(root, 'logs'), { recursive: true });
   fs.writeFileSync(path.join(root, 'logs', 'sample.log'), `${model}\n${warning}`);
   const row = { id: 'sample', status: 'failed', ranOn: 'codex', exitCode: 1, note: 'codex stopped with exit code 1. Last error: shutdown' };
   assert.match(display(row).note, /model is not supported/);
