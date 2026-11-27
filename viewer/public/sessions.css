@@ -16,6 +16,7 @@
 .sact{white-space:nowrap;text-align:right}.sact .pill{padding:2px 8px;font-size:12px;margin-left:4px}
 .fact{margin-top:4px}.fact .pill{padding:1px 7px;font-size:11px;margin-right:4px}
 .sess-all{overflow-x:auto}
+.session-scroll-hint{display:none;color:var(--dim);font-size:12px;margin:4px 0 8px}
 .sess-all table.ss td{white-space:nowrap}
 .sess-all table.ss td.st{width:100%;max-width:0;overflow:hidden;text-overflow:ellipsis}
 .sess-all table.ss td:nth-child(3){max-width:170px;overflow:hidden;text-overflow:ellipsis;color:var(--dim)}
@@ -25,6 +26,7 @@
 .srow.arch{opacity:.6}.sarch{margin-top:10px}.sarch .pill{padding:3px 10px;font-size:12px}
 .vact{display:flex;gap:6px;flex:none}.vact[hidden]{display:none}.vact .pill{padding:3px 10px;font-size:12px}
 @media(max-width:700px){
+ .session-scroll-hint{display:block}
  .sess-all table.ss th:nth-child(3),.sess-all table.ss td:nth-child(3){display:none}
  .sess-all .sact .pill{opacity:1}
  .sess-all table.ss td.st{width:auto;max-width:210px}

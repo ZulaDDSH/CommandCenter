@@ -5,7 +5,8 @@ import path from 'node:path';
 import { chromium } from 'playwright';
 
 const names = ['freebuff', 'codex', 'cursor', 'opencode', 'claude', 'antigravity'];
-const providers = Object.fromEntries(names.map(name => [name, { name, what: `Use ${name}`, installed: true, signedIn: true, site: '', docs: '' }]));
+const display = { freebuff: 'Freebuff', codex: 'Codex', cursor: 'Cursor', opencode: 'OpenCode', claude: 'Claude', antigravity: 'Antigravity' };
+const providers = Object.fromEntries(names.map(name => [name, { name: display[name], what: `Use ${display[name]}`, installed: true, signedIn: true, site: '', docs: '' }]));
 const config = { setupDone: true, providers: Object.fromEntries(names.map(name => [name, true])), maxParallel: { codex: 2, cursor: 1, opencode: 2, claude: 1, antigravity: 1 }, maxClis: 3, stuckAfterMin: 90, models: {}, projectDir: '', reportsDir: '/reports', runtimeDir: '' };
 const setup = { config, providers, root: '/workspace', prereqs: { runtime: { ok: true, detail: '/runtime', registered: true }, node: { ok: true, detail: 'Node 22' }, git: { ok: true, detail: 'git' } }, hook: { installed: true }, tools: { register: true } };
 const now = Date.now(), stamp = new Date(now).toISOString();
@@ -18,8 +19,8 @@ const reply = pathname => ({
   '/orch': { orchestrator: { mode: 'orchestrated', provider: 'codex' }, team: [], workerModels: {}, efforts: { codex: ['low', 'high'] } },
   '/budget': { providers: { codex: { enabled: true, installed: true, running: 0, max: 2 } } },
   '/sessions': [session], '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }] },
-  '/archive/sessions': [{ ...session, archived: true }], '/ext/list': { files: [], stash: { ok: true }, rows: [] },
-  '/debug': [{ group: 'System', name: 'Example', ok: true, detail: 'Ready' }],
+  '/archive/sessions': [{ ...session, archived: true }], '/ext/list': { files: [], stash: { ok: true }, rows: [{ section: 'hooks', id: 'example-hook', rev: '1', on: true, name: 'Example hook', app: 'Codex', what: 'Runs before a tool starts.', source: 'Example settings', path: '/workspace/settings' }] },
+  '/debug': [{ group: 'System', name: 'Example', ok: false, detail: 'Could not read /workspace/example-with-a-long-name/configuration.json', fix: 'Check the example configuration.' }],
   '/spawn-check': { clis: [], max: 1, roles: {} },
 }[pathname]);
 const publicDir = path.resolve('viewer/public');
@@ -53,6 +54,8 @@ try {
     for (const [tab, selector] of pages) {
       await page.locator(`#tabs [data-t="${tab}"]`).click();
       await page.locator(selector).waitFor({ state: 'visible' });
+      if (tab === 'ext') await page.locator('.ext .xsec').first().waitFor({ state: 'visible' });
+      if (tab === 'debug') await page.locator('#pg-dbody .pg-tbl').first().waitFor({ state: 'visible' });
       await page.screenshot({ path: `frontend-artifacts/${width}-${tab}.png` });
       const overflow = await page.locator('#prov').evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
       assert.ok(overflow.scroll <= overflow.width + 1, `${tab} overflows at ${width}px: ${JSON.stringify(overflow)}`);
@@ -71,6 +74,8 @@ try {
         await page.locator('.session-open').first().click();
         await page.getByRole('dialog').waitFor({ state: 'visible' });
         assert.equal(await page.evaluate(() => document.activeElement.id), 'vclose');
+        await page.getByRole('button', { name: 'Show more' }).waitFor({ state: 'visible' });
+        await page.screenshot({ path: `frontend-artifacts/${width}-session-dialog.png` });
         await page.getByRole('button', { name: 'Show more' }).click();
         await page.keyboard.press('Escape');
         assert.equal(await page.getByRole('dialog').isVisible(), false);

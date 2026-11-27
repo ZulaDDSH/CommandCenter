@@ -104,7 +104,7 @@ function tree(list){
 
 function group(title,list,empty){
  list=tree(list);
- return '<div class="tk-h">'+title+' ('+list.length+')</div>'+(list.length?'<div class="tk-table-wrap" tabindex="0" role="region" aria-label="'+title+' tasks"><table class="ss tk-table"><thead><tr><th></th><th>Task</th><th>Kind</th><th>Provider</th><th>Folder</th><th>Times</th><th>Note</th><th></th></tr></thead><tbody>'+list.map(row).join('')+'</tbody></table></div>':'<div class="tk-empty">'+empty+'</div>')}
+ return '<div class="tk-h">'+title+' ('+list.length+')</div>'+(list.length?'<div class="tk-scroll-hint">Scroll horizontally to see all task details.</div><div class="tk-table-wrap" tabindex="0" role="region" aria-label="'+title+' tasks"><table class="ss tk-table"><thead><tr><th></th><th>Task</th><th>Kind</th><th>Provider</th><th>Folder</th><th>Times</th><th>Note</th><th></th></tr></thead><tbody>'+list.map(row).join('')+'</tbody></table></div>':'<div class="tk-empty">'+empty+'</div>')}
 
 function paint(){
  const root=$('tk-root');if(!root||tab!=='director')return;
