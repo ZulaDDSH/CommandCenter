@@ -84,9 +84,16 @@ function parseStats(text) {
   const num = label => text.match(new RegExp(`│${label}\\s+([^│]+?)\\s*│`))?.[1]?.trim() ?? null;
   return { sessions: num('Sessions'), cost: num('Total Cost'), input: num('Input'), output: num('Output') };
 }
+export const usageKeyFromRegistry = output => String(output ?? '').match(/^\s*CC_OPENCODE_USAGE_KEY\s+REG_SZ\s+([^\r\n]+)\s*$/m)?.[1]?.trim() ?? '';
 export async function opencode() {
   const [day, week] = await Promise.all([run(OPENCODE, ['stats', '--days', '1']), run(OPENCODE, ['stats', '--days', '7'])]);
-  let key = process.env.CC_OPENCODE_USAGE_KEY?.trim() || process.env.OPENCODE_API_KEY?.trim();
+  let key = process.env.CC_OPENCODE_USAGE_KEY?.trim();
+  if (!key && process.platform === 'win32') {
+    const reg = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'reg.exe');
+    const { out } = await runCall({ cmd: reg, args: ['query', 'HKCU\\Environment', '/v', 'CC_OPENCODE_USAGE_KEY'], opts: {} }, 3000);
+    key = usageKeyFromRegistry(out);
+  }
+  key ||= process.env.OPENCODE_API_KEY?.trim();
   if (!key) try { key = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.local/share/opencode/auth.json'), 'utf8'))['opencode-go']?.key; } catch {}
   let windows = null, limits = '';
   if (!key) limits = 'Connect an OpenCode Go account to see its allowance.';

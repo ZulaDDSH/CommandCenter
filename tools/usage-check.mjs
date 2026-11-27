@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { claude, opencode } from '../usage/providers.mjs';
+import { claude, opencode, usageKeyFromRegistry } from '../usage/providers.mjs';
 import { budget } from '../lib/orchestrator.mjs';
 import { childEnv } from '../usage/exec.mjs';
 
@@ -13,6 +13,8 @@ const originalUsageKey = process.env.CC_OPENCODE_USAGE_KEY;
 const originalHome = process.env.CC_EXT_HOME;
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-usage-'));
 try {
+  assert.equal(usageKeyFromRegistry('HKEY_CURRENT_USER\\Environment\r\n    CC_OPENCODE_USAGE_KEY    REG_SZ    private-usage-fixture\r\n'), 'private-usage-fixture');
+  assert.equal(usageKeyFromRegistry(''), '');
   process.env.CLAUDE_CODE_OAUTH_TOKEN = 'private-claude-fixture';
   process.env.OPENCODE_API_KEY = 'private-opencode-fixture';
   process.env.CC_OPENCODE_USAGE_KEY = 'private-usage-fixture';
