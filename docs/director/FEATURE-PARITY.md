@@ -161,7 +161,7 @@ reasoning are recorded in `docs/director/STAGES.md`.
 
 ## Next steps, in priority order
 
-1. Keep the workflow green. First green run 2026-11-27: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45941431918 ( on windows-latest).
+1. Keep the workflow green. First green run 2026-11-27: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45941431918 — `68 passed, 0 failed` on windows-latest.
 2. Exercise one real provider end to end (Codex on a throwaway repo) instead of only the fake agent.
 3. Watch the Director tab in a browser once, then fix whatever the first paint gets wrong.
 4. Read one real repository's PRs through `gh`, with a head commit and a CI rollup on screen.
