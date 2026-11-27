@@ -246,3 +246,25 @@ route `POST /director/stage` is the way to add an entry from a running panel.
 - CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45942636794 — success, `84 passed, 0 failed`
   on `windows-latest`, for commit `3b2c669` (the fence and its tests). The only later change is this
   line and the wording fix above it.
+
+## 2026-11-27 — Stage 4a: a second panel beside a live one
+
+- Goal: none. `holderGone` was written for this case in Stage 4 and nothing asserted it.
+- Exists: before Stage 4, boot recovery ran when the module was imported, so a second panel started on
+  the same folder marked the first panel's running tasks `interrupted` before the dispatcher lock was
+  consulted. After Stage 4 the lock answers first and `holderGone` is the second guard, but no check
+  exercised either against a live panel.
+- Changed: `tools/director-check.mjs` starts a second panel on its own port while the first runs a
+  task, and asserts that the second answers without starting a dispatcher (`bootRecovered` 0 and the
+  lock message), sees the task as `running` under the first panel's token and owner, leaves the stored
+  record untouched, and that a direct `recoverAtBoot()` called beside the live holder takes nothing.
+  It then waits 6.5 s and asserts the first panel is still ticking and still holds the task, and that
+  the task survives the second panel coming and going. `lib/tasks.mjs:recoverAtBoot` is exported so the
+  check can call it directly, pinning the second guard as well as the lock.
+- Evidence: `node tools/director-check.mjs` → 93 passed, 0 failed. These assertions would have failed
+  against commit `a575eeb`, where importing `lib/tasks.mjs` recovered live tasks at module load, so the
+  second panel reported the task as `interrupted`.
+- Limitations: the direct `recoverAtBoot()` call is a same-process simulation; in a running panel the
+  dispatcher lock answers first, which is the real production order. Both guards are now pinned, but
+  the simulated call is not a second machine.
+- Next: a second *machine* would claim through the same token; that path stays unexercised.

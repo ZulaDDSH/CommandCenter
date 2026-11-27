@@ -246,6 +246,7 @@ const summary = () => {
 };
 
 let current = null;
+let extra = null;
 
 try {
   fs.mkdirSync(tmp, { recursive: true });
@@ -469,6 +470,34 @@ try {
   setLease(task2, beforeKill.lease);
   must('the original lease is back in place', readStore().find(x => x.id === task2)?.lease?.token === token1);
 
+  console.log('\nA second panel starts while the first is running a task');
+  const port2b = await freePort();
+  extra = await startPanel({ app, bin, port: port2b, log });
+  const bSees = await getJson(port2b, '/tasks');
+  must('the second panel answers but starts no dispatcher', bSees?.dispatcher?.bootRecovered === 0 && /already dispatching/.test(bSees?.dispatcher?.error ?? ''), `bootRecovered ${bSees?.dispatcher?.bootRecovered}, error ${bSees?.dispatcher?.error ?? 'none'}`);
+  const bTask = (bSees?.tasks ?? []).find(x => x.id === task2);
+  must('the second panel sees the task as running, not interrupted', bTask?.status === 'running', bTask?.status ?? 'missing');
+  must('the second panel did not take the task', bTask?.lease?.token === token1 && bTask?.lease?.owner === beforeKill.lease.owner, `${bTask?.lease?.token} vs ${token1}`);
+  const afterSecond = readStore().find(x => x.id === task2);
+  must('the stored task is untouched by the second panel', afterSecond?.status === 'running' && afterSecond?.lease?.token === token1, `${afterSecond?.status} / ${afterSecond?.lease?.token}`);
+
+  const directRecover = writer.recoverAtBoot();
+  must('recovery run beside a live holder takes nothing', directRecover === 0, `${directRecover} task(s) taken`);
+  const afterDirect = readStore().find(x => x.id === task2);
+  must('the live holder still has the task after that recovery', afterDirect?.status === 'running' && afterDirect?.lease?.token === token1, `${afterDirect?.status} / ${afterDirect?.lease?.token}`);
+
+  const tickA = (await getJson(port2, '/tasks'))?.dispatcher?.lastTick ?? 0;
+  await sleep(6500);
+  const tickA2 = (await getJson(port2, '/tasks'))?.dispatcher?.lastTick ?? 0;
+  must('the first panel is still dispatching', tickA2 > tickA, `${tickA} -> ${tickA2}`);
+  const stillMine = (await getJson(port2, '/tasks'))?.tasks?.find(x => x.id === task2);
+  must('the first panel still holds the running task', stillMine?.status === 'running' && stillMine?.lease?.token === token1, `${stillMine?.status} / ${stillMine?.lease?.token}`);
+
+  killPanel(extra);
+  extra = null;
+  const afterBoth = (await getJson(port2, '/tasks'))?.tasks?.find(x => x.id === task2);
+  must('the task survives the second panel coming and going', afterBoth?.status === 'running' && afterBoth?.lease?.token === token1, `${afterBoth?.status} / ${afterBoth?.lease?.token}`);
+
   killPanel(current);
   current = null;
   await sleep(2000);
@@ -524,8 +553,10 @@ try {
 } catch (e) {
   bad('check run completed', e?.stack ? String(e.stack).split('\n').slice(0, 4).join(' | ') : String(e?.message ?? e));
   try { if (current) killPanel(current); } catch {}
+  try { if (extra) killPanel(extra); } catch {}
 } finally {
   try { if (current) killPanel(current); } catch {}
+  try { if (extra) killPanel(extra); } catch {}
   summary();
   if (!keepState()) { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} }
   console.log(`\n${results.filter(r => r.ok).length} passed, ${failed} failed`);
