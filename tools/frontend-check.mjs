@@ -22,7 +22,7 @@ const reply = pathname => ({
   '/tasks': { tasks: [task, runningTask], dispatcher: { lastTick: now } },
   '/director': { goals: [], needsYou: [], dispatcher: { lastTick: now }, config: {}, machines: null, github: { repo: 'example/repo', at: stamp, prs: [pullRequest] } },
   '/orch': orch,
-  '/budget': { providers: { freebuff: { enabled: true, hoursLeft: '12:00', models: [{ id: 'fb-example', name: 'Example Freebuff', workHoursLeft: 6 }] }, codex: { enabled: true, installed: true, running: 0, max: 2, windows: [{ minutes: 10080, usedPercent: 45, stale: false }] }, cursor: { enabled: true } } },
+  '/budget': { providers: { freebuff: { enabled: true, hoursLeft: '12:00', models: [{ id: 'fb-example', name: 'Example Freebuff', workHoursLeft: 6 }] }, codex: { enabled: true, installed: true, running: 0, max: 2, windows: [{ minutes: 10080, usedPercent: 45, stale: false }] }, cursor: { enabled: true }, opencode: { enabled: true, windows: [{ name: 'rolling', usedPercent: 30 }] } } },
   '/sessions': sessions.map(s => ({ ...s, archived: archivedFixture.has(s.id) })), '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }] },
   '/archive/sessions': [{ ...session, archived: true }], '/ext/list': { files: [], stash: { ok: true }, rows: [{ section: 'hooks', id: 'example-hook', rev: '1', on: true, name: 'Example hook', app: 'Codex', what: 'Runs before a tool starts.', source: 'Example settings', path: '/workspace/settings' }] },
   '/debug': [{ group: 'System', name: 'Example', ok: false, detail: 'Could not read /workspace/example-with-a-long-name/configuration.json', fix: 'Check the example configuration.' }],
@@ -106,14 +106,16 @@ try {
         assert.ok(widthInfo.width <= widthInfo.viewport, 'Usage drawer must fit the viewport');
         await drawer.getByRole('button', { name: 'Codex' }).click();
         await drawer.getByText('55% left').waitFor({ state: 'visible' });
+        await drawer.getByRole('button', { name: 'OpenCode' }).click();
+        await drawer.getByText('70% left').waitFor({ state: 'visible' });
         await drawer.getByRole('button', { name: 'Cursor' }).click();
-        await drawer.getByText('Remaining model usage is not available from this provider.').waitFor({ state: 'visible' });
+        await drawer.getByText('Remaining usage is unavailable. Check your Cursor account for its current limits.').waitFor({ state: 'visible' });
         await page.route('**/budget', route => route.fulfill({ status: 500, body: 'failed' }));
         await page.evaluate(() => PAGES.home(document.getElementById('prov')));
         await drawer.getByText('Could not load usage. Try again.').waitFor({ state: 'visible' });
         await page.unroute('**/budget');
         await drawer.getByRole('button', { name: 'Refresh' }).click();
-        await drawer.getByText('Remaining model usage is not available from this provider.').waitFor({ state: 'visible' });
+        await drawer.getByText('Remaining usage is unavailable. Check your Cursor account for its current limits.').waitFor({ state: 'visible' });
         await page.keyboard.press('Escape');
         assert.equal(await drawer.getAttribute('aria-hidden'), 'true');
         assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
