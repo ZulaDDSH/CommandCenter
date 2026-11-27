@@ -199,6 +199,8 @@ def update_json(data, ids, adapter, python):
         cmd_span = entry_span[2].get("command")
         if not cmd_span:
             raise ValueError(f"OpenCode {name} command position is ambiguous.")
+        if command == [python, str(adapter), name]:
+            continue
         replacement = json.dumps([python, str(adapter), name], ensure_ascii=False)
         replacements.append((cmd_span[0], cmd_span[1], replacement))
         expected["mcp"][name]["command"] = [python, str(adapter), name]
@@ -211,9 +213,36 @@ def update_json(data, ids, adapter, python):
 
 
 CLAUDE_STASH_NAMES = ("gimp", "reevesagents")
+NATIVE_ENV_NAMES = ("f4-re-mcp", "rea")
 
 
-def update_stash(data, claude, commands, adapter, python):
+def check_native_env(cfg):
+    env = cfg.get("env", {})
+    if not isinstance(env, dict) or not all(isinstance(k, str) and k and "=" not in k and isinstance(v, str) for k, v in env.items()):
+        raise ValueError("Expected a client-owned string environment map.")
+
+
+def original_launch(name, launch, servers, adapter, python):
+    def calls_adapter(entry):
+        return Path(entry["command"]) == adapter or any(Path(arg) == adapter for arg in entry["args"])
+
+    if not calls_adapter(launch):
+        return launch
+    if launch != {"command": python, "args": [str(adapter), name]}:
+        raise ValueError(f"Unexpected adapter binding for {name}.")
+    original = servers.get(name)
+    if original is None or calls_adapter(original):
+        raise ValueError(f"Missing or recursive shared launch for {name}.")
+    return original
+
+
+def global_stash_entry(row, claude):
+    return (isinstance(row, dict) and row.get("kind") == "mcp" and row.get("app") == "Claude Code"
+            and row.get("scope") == ["mcpServers"] and isinstance(row.get("file"), str) and Path(row["file"]) == claude)
+
+
+
+def update_stash(data, claude, commands, adapter, python, servers, names):
     text = data.decode("utf-8-sig")
     stash = strict_json(text)
     if not isinstance(stash, dict) or type(stash.get("version")) is not int or stash["version"] != 1 or not isinstance(stash.get("entries"), list):
@@ -223,27 +252,29 @@ def update_stash(data, claude, commands, adapter, python):
     expected = copy.deepcopy(stash)
     found, replacements = set(), []
     for index, row in enumerate(entries):
-        if not isinstance(row, dict) or row.get("kind") != "mcp" or row.get("app") != "Claude Code" or row.get("name") not in CLAUDE_STASH_NAMES:
-            continue
-        if row.get("scope") != ["mcpServers"] or not isinstance(row.get("file"), str) or Path(row["file"]) != claude:
+        if not global_stash_entry(row, claude) or row.get("name") not in names:
             continue
         name, cfg = row["name"], row.get("cfg")
         if name in found or not isinstance(row.get("id"), str) or not row["id"] or sum(isinstance(e, dict) and e.get("id") == row["id"] for e in entries) != 1:
             raise ValueError(f"Ambiguous Claude stash entry for {name}.")
-        if type(row.get("idx")) is not int or row["idx"] < 0 or not isinstance(cfg, dict) or cfg.get("type") != "stdio":
+        if type(row.get("idx")) is not int or row["idx"] < 0 or not isinstance(cfg, dict) or cfg.get("type", "stdio" if name == "rea" else None) != "stdio":
             raise ValueError(f"Unsupported Claude stash entry for {name}.")
-        if set(cfg) - {"type", "command", "args", "env"} or cfg.get("env", {}) != {}:
+        if set(cfg) - {"type", "command", "args", "env"} or (name not in NATIVE_ENV_NAMES and cfg.get("env", {}) != {}):
             raise ValueError(f"Unsupported Claude launch settings for {name}.")
-        if safe_command(cfg.get("command"), cfg.get("args")) != commands[name]:
+        check_native_env(cfg)
+        launch = safe_command(cfg.get("command"), cfg.get("args"))
+        if original_launch(name, launch, servers, adapter, python) != commands[name]:
             raise ValueError(f"Claude and Codex launches differ for {name}.")
         fields = spans[index][2]["cfg"][2]
         for key, value in (("command", python), ("args", [str(adapter), name])):
+            if cfg[key] == value:
+                continue
             start, end, _ = fields[key]
             replacements.append((start, end, json.dumps(value, ensure_ascii=False)))
             expected["entries"][index]["cfg"][key] = value
         found.add(name)
-    if found != set(CLAUDE_STASH_NAMES):
-        raise ValueError("Expected both matching disabled Claude stash entries.")
+    if found != set(names):
+        raise ValueError("Missing matching disabled Claude stash entries.")
     for start, end, value in sorted(replacements, reverse=True):
         text = text[:start] + value + text[end:]
     if strict_json(text) != expected:
@@ -252,7 +283,7 @@ def update_stash(data, claude, commands, adapter, python):
 
 
 @contextmanager
-def disabled_claude_guard(path):
+def disabled_claude_guard(path, names):
     import msvcrt
     reject_links(path)
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -272,7 +303,7 @@ def disabled_claude_guard(path):
     with os.fdopen(fd, "rb") as stream:
         cfg = strict_json(stream.read().decode("utf-8-sig"))
         servers = cfg.get("mcpServers", {}) if isinstance(cfg, dict) else None
-        if not isinstance(servers, dict) or any(name in servers for name in CLAUDE_STASH_NAMES):
+        if not isinstance(servers, dict) or any(name in servers for name in names):
             raise ValueError("Claude global registrations must remain disabled for stash migration and rollback.")
         yield
 
@@ -300,8 +331,14 @@ def update_toml(data, ids, adapter, python):
         cfg = servers.get(name)
         if not isinstance(cfg, dict) or cfg.get("enabled") is not False:
             raise ValueError(f"Codex {name} must be explicitly disabled.")
-        safe_fields(cfg)
+        if name in NATIVE_ENV_NAMES:
+            check_native_env(cfg)
+            safe_fields({k: v for k, v in cfg.items() if k != "env"})
+        else:
+            safe_fields(cfg)
         commands[name] = safe_command(cfg.get("command"), cfg.get("args"))
+        if commands[name] == {"command": python, "args": [str(adapter), name]}:
+            continue
         start = locations[name]
         end = next((i for i in range(start + 1, len(lines)) if re.match(r"^\s*\[", lines[i])), len(lines))
         if any(re.match(r"^\s*\[\[", line) for line in lines[start + 1:end]):
@@ -334,7 +371,7 @@ def update_toml(data, ids, adapter, python):
         expected["mcp_servers"][name]["args"] = [str(adapter), name]
     if tomllib.loads("".join(lines)) != expected:
         raise ValueError("Codex semantic round-trip validation failed.")
-    return commands, "".join(lines).encode("utf-8")
+    return commands, "".join(lines).encode("utf-8-sig" if data.startswith(bytes.fromhex("efbbbf")) else "utf-8")
 
 
 def paths(args):
@@ -765,6 +802,8 @@ def txf_step(transaction, target, before, after, *, client=False, recovering=Fal
             return
         if current != before:
             raise RuntimeError(f"Transaction stopped on a concurrent change to {target}.")
+        if current == after:
+            return
         if after is not None:
             stream.seek(0)
             if stream.write(after) != len(after):
@@ -799,17 +838,31 @@ def migrate(paths):
     if "stash" in paths:
         reject_links(paths["stash"])
         stash_original = read(paths["stash"])
-    codex_names = (*NAME_IDS, "gimp") if stash_original is not None else NAME_IDS
+    stash_names = CLAUDE_STASH_NAMES
+    if stash_original is not None:
+        codex_servers = tomllib.loads(codex_original.decode("utf-8-sig")).get("mcp_servers", {})
+        stash = strict_json(stash_original.decode("utf-8-sig"))
+        entries = stash.get("entries") if isinstance(stash, dict) else None
+        if not isinstance(entries, list):
+            raise ValueError("Unsupported disabled-extension stash.")
+        seen = [row.get("name") for row in entries if global_stash_entry(row, paths["claude"])]
+        stash_names += tuple(n for n in NATIVE_ENV_NAMES if n in seen or n in codex_servers)
+    codex_names = tuple(dict.fromkeys((*NAME_IDS, *stash_names))) if stash_original is not None else NAME_IDS
     codex_entries, codex_new = update_toml(codex_original, codex_names, paths["adapter"], sys.executable)
     open_entries, open_new = update_json(open_original, NAME_IDS, paths["adapter"], sys.executable)
-    if any(codex_entries[name] != open_entries[name] for name in NAME_IDS):
-        raise ValueError("Codex and OpenCode registrations are not semantically identical.")
     registry, registry_original = load_current_registry(paths["registry"])
-    for name, entry in codex_entries.items():
-        if name in registry["servers"] and registry["servers"][name] != entry:
+    servers = registry["servers"]
+    originals = {name: original_launch(name, entry, servers, paths["adapter"], sys.executable)
+                 for name, entry in codex_entries.items()}
+    if any(originals[name] != original_launch(name, open_entries[name], servers, paths["adapter"], sys.executable) for name in NAME_IDS):
+        raise ValueError("Codex and OpenCode registrations are not semantically identical.")
+    for name, entry in originals.items():
+        if name in servers and servers[name] != entry:
             raise ValueError(f"Existing registry entry {name} conflicts with the client config.")
-        registry["servers"][name] = entry
-    registry_new = (json.dumps(registry, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    registry_new = registry_original
+    if any(name not in servers for name in originals):
+        registry["servers"] = {**servers, **originals}
+        registry_new = (json.dumps(registry, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     adapter_original = read(paths["adapter"])
     adapter_new = paths["source_adapter"].read_bytes()
     participants = {
@@ -820,19 +873,23 @@ def migrate(paths):
     }
     if stash_original is not None:
         validate_config_acl(paths["stash"], allow_inherited_read=True, stash=True)
-        stash_new = update_stash(stash_original, paths["claude"], codex_entries, paths["adapter"], sys.executable)
+        stash_new = update_stash(stash_original, paths["claude"], originals, paths["adapter"], sys.executable, servers, stash_names)
         participants["stash"] = (stash_original, stash_new)
         requires_txf = True
+    if all(old == new for old, new in participants.values()):
+        with disabled_claude_guard(paths["claude"], stash_names) if "stash" in participants else nullcontext():
+            print("Shared registrations are already migrated.")
+            return None
     txid = str(uuid.uuid4())
     steps = {key: {"path": str(paths[key]), "before": sha(snap(old)), "after": sha(new), "backup": str(displaced_for(paths, paths[key], txid, key)), "snapshot": protect(snap(old))} for key, (old, new) in participants.items()}
     if requires_txf:
         for key, (old, new) in participants.items():
             steps[key]["absent"] = old is None
             steps[key]["intended"] = protect(new)
-        with (disabled_claude_guard(paths["claude"]) if "stash" in participants else nullcontext()), txf_transaction() as transaction:
+        with (disabled_claude_guard(paths["claude"], stash_names) if "stash" in participants else nullcontext()), txf_transaction() as transaction:
             for key, (old, new) in participants.items():
                 txf_step(transaction, paths[key], old, new, client=key in ("codex", "opencode"), stash=key == "stash")
-            journal(paths["journal"], {"id": txid, "event": "prepared", "backend": "txf", "steps": steps})
+            journal(paths["journal"], {"id": txid, "event": "prepared", "backend": "txf", "steps": steps, "stash_names": stash_names})
     else:
         for key in participants:
             if paths[key].parent.stat().st_dev != paths["journal"].parent.stat().st_dev:
@@ -865,7 +922,7 @@ def recover(paths, txid):
         raise ValueError("Claude stash recovery requires its fixed path and transactional journal.")
     allowed_paths = {key: paths[key].resolve() for key in prepared["steps"]}
     if prepared.get("backend") == "txf":
-        with (disabled_claude_guard(paths["claude"]) if "stash" in prepared["steps"] else nullcontext()), txf_transaction() as transaction:
+        with (disabled_claude_guard(paths["claude"], prepared.get("stash_names", CLAUDE_STASH_NAMES)) if "stash" in prepared["steps"] else nullcontext()), txf_transaction() as transaction:
             for key, step in prepared["steps"].items():
                 if Path(step["path"]).resolve() != allowed_paths[key]:
                     raise ValueError("Journal participant path does not match the configured fixed path.")

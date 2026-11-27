@@ -15,6 +15,12 @@ A Command Center stash containing the supported global Claude registrations adds
 
 The stash can be on another local NTFS volume. Each file enlists in the same native transaction. A failure to enlist or commit stops the operation. The stash allowance for an inherited Authenticated Users Modify ACE excludes ownership and ACL changes. The independently validated Codex launch supplies the registry command, and the transaction compares the complete stash bytes through its writer handle before updating them. The journal only contains encrypted stash snapshots. The command accepts an explicit stash path or uses the Command Center root.
 
+## tools/shared-mcp-migrate.py:original_launch and tools/shared-mcp-migrate.py:update_toml
+
+Incremental migration also recognizes disabled f4-re-mcp and rea registrations shared by Codex and the global Claude stash. Their original executable and arguments must agree exactly. Each client keeps its own environment map and passes it to the adapter when launching a server. The registry stores only the executable and arguments. A Claude rea entry can use the implicit stdio transport. OpenCode keeps its existing registrations for these names.
+
+An existing adapter binding resolves through the registry only when its interpreter, adapter location and server name match. The original command remains in the registry across repeated runs. A subsequent migration snapshots the already-migrated state for rollback. When all participant bytes already match the intended result, the command finishes without appending another transaction.
+
 ## tools/shared-mcp-migrate.py:txf_step
 
 The final handle path is checked against the expanded Windows long path. A pending new file expands its existing parent before appending its new file name. This accepts the 8.3 spelling used in Windows runner temp directories and retains the reparse-point checks.

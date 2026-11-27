@@ -195,6 +195,46 @@ class SharedMcpMigrateTests(unittest.TestCase):
         paths["claude"] = claude
         return paths, originals, stash_data, claude_bytes
 
+    def make_incremental_paths(self, root):
+        paths, originals, stash_data, claude_bytes = self.make_stash_paths(root)
+        codex_text = originals["codex"].decode()
+        for name, args, env in (
+            ("f4-re-mcp", ["f4-original"], {"API_TOKEN": "codex-secret-f4"}),
+            ("rea", ["rea-original"], {"API_KEY": "codex-secret-rea"}),
+        ):
+            codex_text += (
+                f"\n[mcp_servers.{name}]\n"
+                "enabled = false\n"
+                'command = "node"\n'
+                f"args = {json.dumps(args)}\n"
+                f"env = {json.dumps(env)}\n"
+            )
+            stash_row = {
+                "id": f"stash-{name}",
+                "idx": len(stash_data["entries"]) + 2,
+                "kind": "mcp",
+                "app": "Claude Code",
+                "file": str(paths["claude"]),
+                "scope": ["mcpServers"],
+                "name": name,
+                "cfg": {"command": "node", "args": args, "env": {f"CLAUDE_{name.upper()}_TOKEN": f"claude-secret-{name}"}},
+                "metadata": {"preserve": name},
+            }
+            if name == "f4-re-mcp":
+                stash_row["cfg"]["type"] = "stdio"
+            stash_data["entries"].append(stash_row)
+        originals["codex_env"] = {
+            "f4-re-mcp": {"API_TOKEN": "codex-secret-f4"},
+            "rea": {"API_KEY": "codex-secret-rea"},
+        }
+        originals["codex"] = codex_text.encode()
+        paths["codex"].write_bytes(originals["codex"])
+        MIGRATE.secure_private_file(paths["codex"])
+        stash_bytes = b"\xef\xbb\xbf" + json.dumps(stash_data, indent=2).encode("utf-8")
+        paths["stash"].write_bytes(stash_bytes)
+        originals["stash"] = stash_bytes
+        return paths, originals, copy.deepcopy(stash_data), claude_bytes
+
     def test_inherited_broad_read_uses_txf_encryption_and_rolls_back(self):
         with tempfile.TemporaryDirectory() as directory:
             paths, originals = self.make_paths(Path(directory), inherited_read=True)
@@ -282,6 +322,80 @@ class SharedMcpMigrateTests(unittest.TestCase):
                 after = {key: paths[key].read_bytes() for key in (*self.keys, "stash", "claude")}
                 self.assertEqual(after, before)
                 self.assertFalse(paths["journal"].exists())
+
+    def test_incremental_claude_bindings_preserve_env_and_registry_excludes_secrets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, originals, stash_before, claude_before = self.make_incremental_paths(Path(directory))
+            txid = self.run_migration(paths)
+            codex = MIGRATE.tomllib.loads(paths["codex"].read_text(encoding="utf-8"))
+            stash_bytes = paths["stash"].read_bytes()
+            stash_after = json.loads(stash_bytes.decode("utf-8-sig"))
+            expected_stash = copy.deepcopy(stash_before)
+            for name in ("f4-re-mcp", "rea"):
+                codex_entry = codex["mcp_servers"][name]
+                self.assertEqual(codex_entry["command"], sys.executable)
+                self.assertEqual(codex_entry["args"], [str(paths["adapter"]), name])
+                self.assertEqual(codex_entry["env"], originals["codex_env"][name])
+                row = next(item for item in expected_stash["entries"] if item.get("name") == name)
+                row["cfg"]["command"] = sys.executable
+                row["cfg"]["args"] = [str(paths["adapter"]), name]
+            self.assertEqual(stash_after, expected_stash)
+            registry_bytes = paths["registry"].read_bytes()
+            registry_text = registry_bytes.decode("utf-8")
+            self.assertNotIn(b"codex-secret-f4", registry_bytes)
+            self.assertNotIn(b"codex-secret-rea", registry_bytes)
+            self.assertNotIn(b"claude-secret", registry_bytes)
+            registry = json.loads(registry_text)
+            for name in ("f4-re-mcp", "rea"):
+                original_arg = "f4-original" if name == "f4-re-mcp" else "rea-original"
+                self.assertEqual(registry["servers"][name], {"command": "node", "args": [original_arg]})
+                self.assertNotIn("env", registry["servers"][name])
+            opencode = json.loads(paths["opencode"].read_text(encoding="utf-8"))
+            self.assertNotIn("f4-re-mcp", opencode["mcp"])
+            self.assertNotIn("rea", opencode["mcp"])
+            self.assertEqual(paths["claude"].read_bytes(), claude_before)
+            self.assertEqual(paths["adapter"].read_bytes(), paths["source_adapter"].read_bytes())
+            committed = self.journal(paths["journal"])
+            self.assertIn({"id": txid, "event": "committed"}, committed)
+            journal_before_repeat = paths["journal"].read_bytes()
+            self.assertIsNone(self.run_migration(paths))
+            self.assertEqual(paths["journal"].read_bytes(), journal_before_repeat)
+            self.assertIsNone(MIGRATE.recover(paths, txid))
+            self.assert_originals(paths, originals)
+            self.assertEqual(paths["stash"].read_bytes(), originals["stash"])
+            self.assertEqual(paths["claude"].read_bytes(), originals["claude"])
+
+    def test_incremental_binding_resolves_already_migrated_adapter_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, originals, _, _ = self.make_incremental_paths(Path(directory))
+            codex = originals["codex"].decode()
+            codex = codex.replace(
+                '[mcp_servers.f4-re-mcp]\nenabled = false\ncommand = "node"\nargs = ["f4-original"]',
+                f'[mcp_servers.f4-re-mcp]\nenabled = false\ncommand = {json.dumps(sys.executable)}\nargs = {json.dumps([str(paths["adapter"]), "f4-re-mcp"])}',
+            )
+            self.assertNotEqual(codex, originals["codex"].decode())
+            paths["codex"].write_text(codex, encoding="utf-8")
+            registry = json.loads(paths["registry"].read_text(encoding="utf-8"))
+            registry["servers"]["f4-re-mcp"] = {"command": "node", "args": ["f4-original"]}
+            paths["registry"].write_text(json.dumps(registry), encoding="utf-8")
+            self.assertIsNotNone(self.run_migration(paths))
+            migrated = MIGRATE.tomllib.loads(paths["codex"].read_text(encoding="utf-8"))
+            self.assertEqual(migrated["mcp_servers"]["f4-re-mcp"]["args"], [str(paths["adapter"]), "f4-re-mcp"])
+
+    def test_incremental_unmatched_stash_launch_fails_without_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, _, stash_data, _ = self.make_incremental_paths(Path(directory))
+            for row in stash_data["entries"]:
+                if row.get("name") == "f4-re-mcp":
+                    row["cfg"]["args"] = ["mismatched-launch"]
+            paths["stash"].write_bytes(b"\xef\xbb\xbf" + json.dumps(stash_data, indent=2).encode("utf-8"))
+            participant_keys = (*self.keys, "stash", "claude")
+            before = {key: paths[key].read_bytes() for key in participant_keys}
+            with self.assertRaises((ValueError, RuntimeError)):
+                self.run_migration(paths)
+            after = {key: paths[key].read_bytes() for key in participant_keys}
+            self.assertEqual(after, before)
+            self.assertFalse(paths["journal"].exists())
 
     def test_txf_refuses_inherited_broad_write_access(self):
         with tempfile.TemporaryDirectory() as directory:
