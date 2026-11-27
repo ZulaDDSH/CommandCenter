@@ -23,7 +23,7 @@ const reply = pathname => ({
   '/director': { goals: [], needsYou: [], dispatcher: { lastTick: now }, config: {}, machines: null, github: { repo: 'example/repo', at: stamp, prs: [pullRequest] } },
   '/orch': orch,
   '/budget': { providers: { freebuff: { enabled: true, hoursLeft: '12:00', models: [{ id: 'fb-example', name: 'Example Freebuff', workHoursLeft: 6 }] }, codex: { enabled: true, installed: true, running: 0, max: 2, windows: [{ minutes: 10080, usedPercent: 45, stale: false }] }, cursor: { enabled: true }, opencode: { enabled: true, windows: [{ name: 'rolling', usedPercent: 30 }] }, claude: { enabled: true, windows: [{ label: 'Weekly, Opus', usedPercent: 25 }] } } },
-  '/sessions': sessions.map(s => ({ ...s, archived: archivedFixture.has(s.id) })), '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }] },
+  '/sessions': sessions.map(s => ({ ...s, archived: archivedFixture.has(s.id) })), '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }, { k: 'tool', name: 'Read', input: 'example input', output: 'example output' }, { k: 'tool', name: 'Shell', input: 'example command', output: 'command output' }] },
   '/archive/sessions': [{ ...session, archived: true }], '/ext/list': { files: [], stash: { ok: true }, rows: [{ section: 'hooks', id: 'example-hook', rev: '1', on: true, name: 'Example hook', app: 'Codex', what: 'Runs before a tool starts.', source: 'Example settings', path: '/workspace/settings' }] },
   '/debug': [{ group: 'System', name: 'Example', ok: false, detail: 'Could not read /workspace/example-with-a-long-name/configuration.json', fix: 'Check the example configuration.' }],
   '/spawn-check': { clis: [], max: 1, roles: {} },
@@ -158,14 +158,7 @@ try {
       if (tab === 'sessions') {
         const tabsFit = await page.locator('.session-tabs').evaluate(el => [...el.children].every(button => button.getBoundingClientRect().bottom <= el.getBoundingClientRect().bottom + 1));
         assert.ok(tabsFit, 'All provider tabs must fit inside their navigation');
-        const running = page.locator('[data-task-id="running-task"]');
-        await running.waitFor({ state: 'visible' });
-        await running.focus();
-        await page.evaluate(() => PAGES.sessions(document.getElementById('prov')));
-        assert.equal(await page.evaluate(() => document.activeElement.dataset.taskId), 'running-task');
-        await running.click();
-        await page.locator('#dr-root').waitFor({ state: 'visible' });
-        await page.locator('#tabs [data-t="sessions"]').click();
+        assert.equal(await page.getByText('Command Center tasks running now').count(), 0);
         await page.locator('.session-table-wrap').waitFor({ state: 'visible' });
         await page.locator('[data-session-provider="claude"]').click();
         await page.getByText('No sessions match these filters.').waitFor({ state: 'visible' });
@@ -203,8 +196,20 @@ try {
         await page.keyboard.press('Shift+Tab');
         assert.equal(await page.evaluate(() => document.activeElement.dataset.expand), `${session.provider}:${session.id}:0`);
         await page.getByRole('button', { name: 'Show more' }).click();
+        assert.equal(await page.locator('#vfeed .tool').count(), 0);
+        await page.getByRole('button', { name: 'Tool calls (2)' }).click();
+        assert.equal(await page.locator('#vfeed .tool').count(), 2);
+        assert.equal(await page.locator('#vfeed .tool[open]').count(), 0);
+        await page.locator('#vfeed .tool summary').first().click();
+        await page.getByText('example output').waitFor({ state: 'visible' });
+        await page.getByRole('button', { name: 'Chat', exact: true }).click();
+        assert.equal(await page.locator('#vfeed .tool').count(), 0);
         await page.keyboard.press('Escape');
         assert.equal(await page.getByRole('dialog').isVisible(), false);
+        await page.locator('.session-open').first().click();
+        await page.getByRole('button', { name: 'Tool calls (2)' }).click();
+        assert.equal(await page.locator('#vfeed .tool[open]').count(), 0);
+        await page.keyboard.press('Escape');
       }
       if (tab === 'archive') {
         await page.locator('.asearch').fill('no matching archive');
