@@ -194,3 +194,6 @@ https://github.com/ZulaDDSH/CommandCenter/actions/runs/45947200108
 
 Later rows (one-rule pairing): `128 passed, 0 failed` on `windows-latest`, commit `41f1252`,
 https://github.com/ZulaDDSH/CommandCenter/actions/runs/45948032524
+
+Later rows (other-host lease): `132 passed, 0 failed` on `windows-latest`, commit `c58bfba`,
+https://github.com/ZulaDDSH/CommandCenter/actions/runs/45948873083

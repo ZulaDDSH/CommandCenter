@@ -470,3 +470,6 @@ were removed so the log has a single writer and no second path that could interl
   machine process — the multi-machine section covers a real second process, but for its own task, not
   this one. The third branch (same host, dead pid) is covered by the kill-and-recover section.
 - Next: none for this guard; nothing else in it is unasserted.
+- CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45948873083 — success, `132 passed, 0 failed`
+  on `windows-latest`, for commit `c58bfba`. The only later change is this line and the same link in
+  `FEATURE-PARITY.md`.
