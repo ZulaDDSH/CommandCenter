@@ -198,3 +198,6 @@ https://github.com/ZulaDDSH/CommandCenter/actions/runs/45948032524
 
 Later rows (other-host lease): `132 passed, 0 failed` on `windows-latest`, commit `c58bfba`,
 https://github.com/ZulaDDSH/CommandCenter/actions/runs/45948873083
+
+Later rows (retry beside a close): `133 passed, 0 failed` on `windows-latest`, commit `0888a04`,
+https://github.com/ZulaDDSH/CommandCenter/actions/runs/45949738702

@@ -492,3 +492,6 @@ were removed so the log has a single writer and no second path that could interl
   starting a child needs a real provider CLI; `add` stands in for the start write and the panel's own
   tick is the only place `startChild` runs, on this machine, not across processes.
 - Next: none for store ownership; the remaining risk is a writer added later without `touch()`.
+- CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45949738702 — success, `133 passed, 0 failed`
+  on `windows-latest`, for commit `0888a04`. The only later change is this line and the same link in
+  `FEATURE-PARITY.md`.
