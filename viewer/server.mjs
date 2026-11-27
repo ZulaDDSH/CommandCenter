@@ -249,13 +249,12 @@ const readBody = (req, max) => new Promise((ok, fail) => {
 const openTerminal = (title, cmd) => { const c = spawn('cmd.exe', ['/c', `start "${title}" cmd /k ${cmd}`], { windowsVerbatimArguments: true, detached: true, stdio: 'ignore' }); c.on('error', e => console.error(`terminal: ${e.message}`)); c.unref(); };
 process.on('uncaughtException', e => console.error(`uncaught: ${e.stack ?? e}`));
 
-const SESS_LIMIT = 15;
+const SESS_LIMIT = 50;
 let sessCache = { at: 0, body: '[]' };
 function allSessions() {
   if (Date.now() - sessCache.at < 15000) return sessCache.body;
   const out = decorate('freebuff', loadSessions().filter(s => !s.archived).map(s => ({ provider: 'freebuff', id: s.slug, title: s.title ?? s.slug, cwd: worktree(s.slug), mtime: s.mtime, pid: s.queued ? null : chatPid(s.dir), state: !s.queued && Date.now() - s.mtime < 120000 ? 'working' : !s.expiresAt && Date.now() - s.mtime > 72e5 ? 'done' : 'idle' })));
   for (const [p, fn] of Object.entries(sessionLists)) {
-    if (!config().providers[p]) continue;
     try { out.push(...capRows(p, fn(SESS_LIMIT + 6), SESS_LIMIT)); } catch (e) { out.push({ provider: p, id: '', title: `Could not read ${p} sessions: ${e.message}`, state: 'done', mtime: 0 }); }
   }
   sessCache = { at: Date.now(), body: JSON.stringify(out) };

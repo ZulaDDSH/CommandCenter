@@ -11,13 +11,14 @@ const config = { setupDone: true, providers: Object.fromEntries(names.map(name =
 const setup = { config, providers, root: '/workspace', prereqs: { runtime: { ok: true, detail: '/runtime', registered: true }, node: { ok: true, detail: 'Node 22' }, git: { ok: true, detail: 'git' } }, hook: { installed: true }, tools: { register: true } };
 const now = Date.now(), stamp = new Date(now).toISOString();
 const task = { id: 'example-task', title: 'Director task with a readable title', status: 'cancelled', role: 'orchestrator', kind: 'code', provider: 'codex', ranOn: 'codex', model: 'example-model', cwd: '/workspace/git/example-task', createdAt: stamp, startedAt: stamp, endedAt: stamp, note: 'Stopped with its goal.' };
+const runningTask = { ...task, id: 'running-task', title: 'Running task example', status: 'running', role: 'worker', endedAt: null };
 const session = { id: 'example-session', provider: 'codex', title: 'Example session', model: 'example-model', cwd: '/workspace/project', mtime: now, live: 'recent', liveWhy: 'Recent activity', archived: false };
 const sessions = [session, ...Array.from({ length: 26 }, (_, i) => ({ ...session, id: `finished-${i}`, title: `Finished session ${i}`, live: 'finished', mtime: now - i - 1000 }))];
 const pullRequest = { number: 12, title: 'A pull request with a descriptive title', url: 'https://example.com/pr/12', head: 'example-branch', headSha: '1234567', headShaFull: '123456789', evidence: { ci: 'passing', review: 'approved' }, ci: { state: 'passing', pass: 1, fail: 0, pending: 0 }, updatedAt: stamp };
 let orch = { orchestrator: { mode: 'orchestrated', provider: 'codex' }, team: [], workerModels: {}, efforts: { codex: ['low', 'high'] } };
 const reply = pathname => ({
   '/api': [], '/setup': setup, '/setup/folders': { repos: [] }, '/models': { codex: [{ id: 'example-model', name: 'Example Model' }] }, '/board': [],
-  '/tasks': { tasks: [task], dispatcher: { lastTick: now } },
+  '/tasks': { tasks: [task, runningTask], dispatcher: { lastTick: now } },
   '/director': { goals: [], needsYou: [], dispatcher: { lastTick: now }, config: {}, machines: null, github: { repo: 'example/repo', at: stamp, prs: [pullRequest] } },
   '/orch': orch,
   '/budget': { providers: { codex: { enabled: true, installed: true, running: 0, max: 2 } } },
@@ -110,6 +111,15 @@ try {
         }
       }
       if (tab === 'sessions') {
+        const running = page.locator('[data-task-id="running-task"]');
+        await running.waitFor({ state: 'visible' });
+        await running.focus();
+        await page.evaluate(() => PAGES.sessions(document.getElementById('prov')));
+        assert.equal(await page.evaluate(() => document.activeElement.dataset.taskId), 'running-task');
+        await running.click();
+        await page.locator('#dr-root').waitFor({ state: 'visible' });
+        await page.locator('#tabs [data-t="sessions"]').click();
+        await page.locator('.session-table-wrap').waitFor({ state: 'visible' });
         await page.locator('[data-session-provider="claude"]').click();
         await page.getByText('No sessions match these filters.').waitFor({ state: 'visible' });
         assert.equal(await page.evaluate(() => document.activeElement.dataset.sessionProvider), 'claude');
