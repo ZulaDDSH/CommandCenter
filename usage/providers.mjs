@@ -84,15 +84,23 @@ function parseStats(text) {
   const num = label => text.match(new RegExp(`│${label}\\s+([^│]+?)\\s*│`))?.[1]?.trim() ?? null;
   return { sessions: num('Sessions'), cost: num('Total Cost'), input: num('Input'), output: num('Output') };
 }
+export const usageKeyFromRegistry = output => String(output ?? '').match(/^\s*CC_OPENCODE_USAGE_KEY\s+REG_SZ\s+([^\r\n]+)\s*$/m)?.[1]?.trim() ?? '';
 export async function opencode() {
   const [day, week] = await Promise.all([run(OPENCODE, ['stats', '--days', '1']), run(OPENCODE, ['stats', '--days', '7'])]);
-  let key;
-  try { key = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.local/share/opencode/auth.json'), 'utf8'))['opencode-go']?.key; } catch {}
+  let key = process.env.CC_OPENCODE_USAGE_KEY?.trim();
+  if (!key && process.platform === 'win32') {
+    const reg = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'reg.exe');
+    const { out } = await runCall({ cmd: reg, args: ['query', 'HKCU\\Environment', '/v', 'CC_OPENCODE_USAGE_KEY'], opts: {} }, 3000);
+    key = usageKeyFromRegistry(out);
+  }
+  key ||= process.env.OPENCODE_API_KEY?.trim();
+  if (!key) try { key = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.local/share/opencode/auth.json'), 'utf8'))['opencode-go']?.key; } catch {}
   let windows = null, limits = '';
   if (!key) limits = 'Connect an OpenCode Go account to see its allowance.';
+  else if (typeof key !== 'string' || /\s/.test(key)) limits = 'The saved OpenCode Go key is malformed. Enter the key again without spaces.';
   else try {
-    const response = await fetch('https://opencode.ai/inference/go/v1/usage', { headers: { Authorization: `Bearer ${key}` }, redirect: 'error', signal: AbortSignal.timeout(15000) });
-    if (!response.ok) limits = response.status === 401 || response.status === 403 ? 'OpenCode Go rejected the saved key. Reconnect the account to see usage.' : `OpenCode Go usage is unavailable (HTTP ${response.status}).`;
+    const response = await fetch('https://opencode.ai/zen/go/v1/usage', { headers: { Authorization: `Bearer ${key}`, 'x-opencode-session': 'command-center-usage' }, redirect: 'error', signal: AbortSignal.timeout(15000) });
+    if (!response.ok) limits = response.status === 401 || response.status === 403 ? `OpenCode Go refused this account's usage request (HTTP ${response.status}). Reconnect the account or check its key.` : `OpenCode Go usage is unavailable (HTTP ${response.status}).`;
     else {
       const data = await response.json();
       windows = ['rolling', 'weekly', 'monthly'].flatMap(name => {
@@ -115,7 +123,27 @@ export async function cursor() {
 }
 
 export async function claude() {
-  return { note: 'The Claude CLI has no usage readout. Paid plan: keep it for the hardest work.' };
+  let token = process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim();
+  if (!token) {
+    let oauth;
+    try { oauth = JSON.parse(fs.readFileSync(path.join(process.env.CC_EXT_HOME || os.homedir(), '.claude/.credentials.json'), 'utf8')).claudeAiOauth; } catch {}
+    const expiry = Number(oauth?.expiresAt);
+    if (expiry > 0 && (expiry < 1e12 ? expiry * 1000 : expiry) <= Date.now()) return { error: 'Claude sign-in has expired. Run Claude Code to renew it.' };
+    if (Array.isArray(oauth?.scopes) && oauth.scopes.length && !oauth.scopes.includes('user:profile')) return { error: 'Claude sign-in does not have access to account usage.' };
+    token = oauth?.accessToken;
+  }
+  if (!token) return { error: 'Claude account usage is unavailable: no Claude Code sign-in was found.' };
+  try {
+    const response = await fetch('https://api.anthropic.com/api/oauth/usage', { headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': 'oauth-2025-04-20' }, redirect: 'error', signal: AbortSignal.timeout(15000) });
+    if (!response.ok) return { error: `Claude refused the usage request (HTTP ${response.status}).` };
+    const data = await response.json();
+    const labels = { five_hour: '5-hour window', seven_day: 'Weekly, all models', seven_day_opus: 'Weekly, Opus', seven_day_sonnet: 'Weekly, Sonnet' };
+    const windows = Object.entries(labels).flatMap(([name, label]) => {
+      const w = data?.[name];
+      return w && Number.isFinite(w.utilization) && w.utilization >= 0 && w.utilization <= 100 ? [{ name, label, usedPercent: w.utilization, resetsAt: w.resets_at ?? null }] : [];
+    });
+    return windows.length ? { windows } : { error: 'Claude returned no recognizable usage windows.' };
+  } catch { return { error: 'Could not reach Claude account usage.' }; }
 }
 
 export const all ={ freebuff, fbmodels, codex, opencode, cursor, claude };

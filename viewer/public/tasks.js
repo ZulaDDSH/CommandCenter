@@ -45,8 +45,12 @@ function usageDetails(provider,entry){
  }
  if(provider==='opencode'){
   const names={rolling:'5-hour window',weekly:'Weekly window',monthly:'Monthly window'};
-  const rows=(entry.windows||[]).map(w=>'<div class="usage-line"><span>'+esc(names[w.name]||w.name)+(w.resetsAt?'<small>Resets '+esc(new Date(w.resetsAt).toLocaleString())+'</small>':'')+'</span><b>'+esc((100-w.usedPercent)+'% left')+'</b></div>').join('');
+  const rows=(entry.windows||[]).map(w=>'<div class="usage-line"><span>'+esc(names[w.name]||w.name)+(w.resetsAt?'<small>Resets '+esc(new Date(w.resetsAt).toLocaleString())+'</small>':'')+'</span><b>'+esc(w.stale?'Unavailable':(100-w.usedPercent)+'% left')+'</b></div>').join('');
   return '<p>OpenCode Go models share these usage windows.</p>'+(rows||'<div class="usage-empty">'+esc(entry.note||'Remaining usage is unavailable.')+'</div>');
+ }
+ if(provider==='claude'){
+  const rows=(entry.windows||[]).map(w=>'<div class="usage-line"><span>'+esc(w.label)+(w.resetsAt?'<small>Resets '+esc(new Date(w.resetsAt).toLocaleString())+'</small>':'')+'</span><b>'+esc(w.stale?'Unavailable':(100-w.usedPercent)+'% left')+'</b></div>').join('');
+  return '<p>Claude account usage windows.</p>'+(rows||'<div class="usage-empty">Remaining usage is unavailable.</div>');
  }
  return '<div class="usage-empty">Remaining usage is unavailable. Check your '+esc(P[provider])+' account for its current limits.</div>';
 }
@@ -149,7 +153,7 @@ document.addEventListener('click',async e=>{
  const a=b.dataset.tk,id=b.dataset.id;
  if(a==='usage-open'||a==='usage-close'){usageOpen=a==='usage-open';if(!usageOpen){usageRefreshId++;usageNotice=''}const drawer=$('home-usage'),trigger=document.querySelector('[data-tk="usage-open"]');drawer.classList.toggle('is-open',usageOpen);drawer.inert=!usageOpen;drawer.setAttribute('aria-hidden',String(!usageOpen));trigger?.setAttribute('aria-expanded',String(usageOpen));if(usageOpen){drawer.querySelector('[data-tk="usage-close"]')?.focus();PAGES.home($('prov'))}else trigger?.focus();return}
  if(a==='usage-provider'){usageRefreshId++;usageProvider=b.dataset.p;usageNotice='';return PAGES.home($('prov'))}
- if(a==='usage-refresh'){const p=usageProvider,id=++usageRefreshId;usageNotice='Refreshing usage...';const n=$('home-usage-body')?.querySelector('.usage-notice');if(n)n.textContent=usageNotice;try{const ps=p==='freebuff'?['freebuff','fbmodels']:['codex','cursor','opencode'].includes(p)?[p]:[];const results=await Promise.all(ps.map(x=>fetch('/usage?p='+encodeURIComponent(x)+'&fresh=1')));if(results.some(r=>!r.ok))throw 0;if(id!==usageRefreshId)return;usageNotice=ps.length?'Refresh requested. Values may take a moment.':'Checking available usage...'}catch{if(id!==usageRefreshId)return;usageNotice='Could not request a refresh.'}if(tab==='home'&&usageOpen)PAGES.home($('prov'));setTimeout(()=>{if(id!==usageRefreshId)return;usageNotice='';if(tab==='home'&&usageOpen)PAGES.home($('prov'))},3000);return}
+ if(a==='usage-refresh'){const p=usageProvider,id=++usageRefreshId;usageNotice='Refreshing usage...';const n=$('home-usage-body')?.querySelector('.usage-notice');if(n)n.textContent=usageNotice;try{const ps=p==='freebuff'?['freebuff','fbmodels']:['codex','cursor','opencode','claude'].includes(p)?[p]:[];const results=await Promise.all(ps.map(x=>fetch('/usage?p='+encodeURIComponent(x)+'&fresh=1')));if(results.some(r=>!r.ok))throw 0;if(id!==usageRefreshId)return;usageNotice=ps.length?'Refresh requested. Values may take a moment.':'Checking available usage...'}catch{if(id!==usageRefreshId)return;usageNotice='Could not request a refresh.'}if(tab==='home'&&usageOpen)PAGES.home($('prov'));setTimeout(()=>{if(id!==usageRefreshId)return;usageNotice='';if(tab==='home'&&usageOpen)PAGES.home($('prov'))},3000);return}
  if(a==='tab')return setTab(b.dataset.t);
  if(a==='open'){
   window.openSession?.(b.dataset.p,id);
