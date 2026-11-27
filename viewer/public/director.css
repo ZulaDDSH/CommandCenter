@@ -26,3 +26,5 @@
 .dr-ev{margin:6px 0}
 .dr-e{border-top:1px solid #26262e;padding:6px 0;font-size:12px}
 .dr-pre{margin:4px 0;padding:6px;background:#1c1c22;border-radius:6px;max-height:120px;overflow:auto;font-size:11px;white-space:pre-wrap}
+.dr-t{padding:5px 0;border-top:1px solid #26262e;font-size:13px}
+.dr-t:first-child{border-top:0}

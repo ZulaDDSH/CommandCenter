@@ -526,3 +526,34 @@ were removed so the log has a single writer and no second path that could interl
 - CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45952516963 — success, `134 passed, 0 failed`
   on `windows-latest` with no provider CLI installed, for commit `94099f3`. The only later change is this
   line and the same link in `FEATURE-PARITY.md`.
+
+## 2026-11-27 — Stage 13: pick a director, say what you want
+
+- Goal: the person asked for one thing: pick a director model, tell it what is wanted, and it hands the tasks to
+  other models. The tab had grown into a dashboard of goals, limits, machines and pull requests.
+- Exists: the orchestrator mechanism already did this (`POST /orch/config`, a goal with provider `auto` becomes
+  the director's task, `lib/orchestrator.mjs:buildPrompt` tells it to plan, hand out tasks and check reports).
+  The tab hid it behind goal forms, and a real run on a scratch folder found defects (below).
+- Changed:
+  - `viewer/public/director.js`: the Director tab is a provider and model picker (any model id may be typed),
+    one message box and a plain feed (each task with its model and status, results under a fold). Folder, limits,
+    machines, pull requests and discovered sessions are under a collapsed Advanced section.
+  - the 12 second refresh no longer wipes what is being typed (values, focus and the open Advanced section survive).
+  - `lib/config.mjs`: a `config.json` with a byte-order mark is read; any other parse error is reported
+    (`readError`, shown in the tab) and copied aside before a save, instead of silently using defaults.
+  - `lib/tasks.mjs`: a failed task's note carries the last error line from its log (redacted); the waiting reason
+    for a task no provider may take automatically is honest; an interrupted task whose agent process is still alive
+    keeps `orphanPid` and refuses Resume (409) unless `force` is sent.
+  - `lib/github.mjs:mergeBlockers`: refuses unless the review-bot status succeeded for the head.
+- Evidence: scratch panel on a throwaway repo (port 4031, own data folder), driven in the built-in browser.
+  Seen working: the picker saved `codex` and a typed model id (`gpt-5.2`) through `/orch/config`; a typed message
+  survived the 12 s redraw with focus; Send created a goal whose first task was the director (provider and model shown);
+  failed runs now say why in the feed (Claude: OAuth session expired; Codex: model not in the accessible catalog for
+  this ChatGPT account, for `gpt-6.1-terra`, `gpt-5.2` and `gpt-6.2-sol` alike).
+  NOT seen: any director run that finished and handed work to a worker. No provider could run here (Claude login
+  expired, Codex rejects every model it was given), so the director-to-worker hand-off is UNVERIFIED end to end.
+  The orphan guard and the review-bot merge refusal were not exercised live.
+- Deferred, not built: a single writer for the Garden Engine board files, a provider capability table, remote claim.
+- Limitations: the director is a model following a prompt; the panel does not check that it split the work well.
+  Orphan detection only sees processes on this PC. Multi-machine control is still only a signed hello.
+- CI: not run for this change; the Windows `director-check` workflow runs on push and is read once afterwards.

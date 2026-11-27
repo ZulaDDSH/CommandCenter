@@ -75,7 +75,7 @@ machine. What it avoids: an unbuildable rewrite and a second source of truth for
 | Machine inventory and signed hello | `lib/machines.mjs`, `POST /machine/hello` — one `CC_PEER_SECRET` with the same name on both machines; the peer id is the one it signed with, learned on first contact |
 | Pairing is one rule | a machine listed by label and address alone has no id; after its signed hello the host holds the id it signed with, the entry is authenticated, and no peer row carries a per-machine variable name |
 | PR / head / review / public CI visibility | `lib/github.mjs` (read-only `gh`) |
-| Merge approval pinned to a commit, with review-bot and CI guardrails | `POST /director/merge-approval`, `/director/merge` |
+| Merge approval pinned to a commit; refuses without a successful review-bot status, and on failing CI (the bot's findings are not readable here) | `POST /director/merge-approval`, `/director/merge` |
 | Append-only stage log with one writer | no code writer: `POST /director/stage` and `lib/director.mjs:appendStage` were removed, the route answers 404 and nothing else writes the file |
 
 ### Missing, and deliberately not faked

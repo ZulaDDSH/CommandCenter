@@ -530,3 +530,35 @@ never passes it: `tick` calls `startChild(t, p)` and the override stays null, so
 before the lock, and the locked `syncFromDisk` drops keys the disk row lacks, so the start write persisted
 `running` with no lease until the next heartbeat re-claimed it. Every claim site now sits inside its
 `update`, which is what the race asserts.
+
+## lib/config.mjs:config (unreadable file)
+
+Found by running the panel on a scratch folder: a `config.json` saved with a UTF-8 byte-order mark (Windows PowerShell 5.1 `Set-Content -Encoding utf8` writes one) failed `JSON.parse`, and the catch fell back to the defaults without a word. The panel then ran with every provider switched back on, an empty `projectDir`, and the next `saveConfig` would have overwritten the real file. `config` now strips the mark, records any other parse error in `readError` (a missing file is not an error), and `saveConfig` copies an unreadable file to `config.json.unreadable-<time>` before it writes, so settings are never lost to a bad byte. `lib/director.mjs:snapshot` passes `readError` to the Director tab, which shows it.
+
+## lib/tasks.mjs:recoverAtBoot (orphaned agent)
+
+A killed panel does not kill the provider CLI it started: `spawn` children are not tied to the parent on Windows. `recoverAtBoot` used to mark such a task `interrupted` looking only at the dead panel's pid, so Resume would start a second agent in the same worktree beside the first, the thing the worktree rule forbids. When a task that cannot continue (anything but a Freebuff chat) is marked `interrupted`, it now checks `pidAlive(t.pid)`; if the old process still answers `process.kill(pid, 0)` the task keeps `orphanPid` and its note names the pid. `lib/tasks.mjs:resumeInterrupted` returns `{ orphanAlive }` while that process lives, and `lib/routes/director.mjs` answers 409 with the pid. A pid can be recycled by an unrelated program, so `force: true` on the resume request clears the guard once the person has checked. Nothing is killed automatically: ending a process that might hold unsaved work is the person's call.
+
+## lib/tasks.mjs:failCause
+
+On a non-zero exit the task note names the last error-looking line of the log, redacted with `lib/machines.mjs:redact`, instead of only "exit code 1, open the log". The live run showed Codex rejecting the configured model, and the dashboard said nothing about why. Only the last 4000 characters of the log are read and 240 characters kept.
+
+## lib/tasks.mjs:tick (no automatic provider)
+
+`candidates` leaves Claude out of automatic routing on purpose (Claude runs as the director or when a task names it). With only Claude enabled and no director the waiting reason read "usage still loading", which was false. When `candidates` is empty the reason now says that no provider can take the task by automatic routing and how to fix it.
+
+## lib/director.mjs:snapshot (task rows)
+
+Each goal carries `tasks`: one row per task (the director's own task is flagged `director`) with status, provider, model and a short note (the wait reason for a waiting task, the result note otherwise), live tasks first, capped at 30. `config.readError` is passed along so the tab can warn about an unreadable `config.json`. `viewer/public/director.js:goalCard` renders the rows in plain words.
+
+## viewer/public/director.js:build (simple Director tab)
+
+The tab is a director picker, one message box and a feed. The picker saves the existing orchestrator setting through `POST /orch/config` (mode `orchestrated`, the chosen provider, and any model id typed or picked, since the director may be any model the provider accepts). The message box posts one goal to `POST /director/goal` with provider `auto`, which `lib/tasks.mjs:add` turns into the director's own task; the director then creates the worker tasks through its prompt (`lib/orchestrator.mjs:buildPrompt`). Folder, limits, machines, pull requests and discovered sessions sit in a collapsed Advanced section. `load` re-renders every 12 seconds, so `keep` and `restore` copy form values, focus, selection and the open state of Advanced across the redraw; before this the typed message was wiped while the person was typing.
+
+## lib/github.mjs:mergeBlockers (review bot)
+
+The guard only refused on bad signals, so a pull request with no review-bot check at all passed it. It now also refuses unless the rollup holds a successful status named `reviewBotContext` (default `pr-review/ready-to-merge`) for the head GitHub reports. The bot's findings live in its own UI behind a GitHub sign-in and cannot be read here, so a pass is necessary and not sufficient: the person's approval for that commit (`lib/routes/director.mjs` merge route) is still required, and merging from the panel is still off until `mergeEnabled` is set.
+
+## Deferred
+
+Not built: a single writer for the Garden Engine board files, a positive review-bot requirement and head-commit pinning in the merge guard, a provider capability table, and remote task claim. They were set aside when the requirement became "pick a director model, tell it what you want". `docs/director/STAGES.md` records them as deferred.

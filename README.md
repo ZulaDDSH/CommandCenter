@@ -33,7 +33,7 @@ The Guide tab explains every part. Part 1 is for people. Part 2 is for AI agents
 
 ## Director (goals, machines, pull requests)
 
-The Director tab turns a goal into work. You write what done looks like; the existing dispatcher picks an agent and runs it, and the goal is shown with its stage, assigned agents, limits, blockers and the evidence its tasks left behind (report file, exit code, worktree head). You can pause, resume, steer and stop a goal, and set how many tasks may run at once.
+Open the Director tab, pick your director (any provider, any model id), and write what you want done. The director splits the work, hands tasks to other models, checks their reports and reports back; the tab lists each task with its model and status, and you can pause, stop or tell the director something new. Folder, task limits, machines, pull requests and other sessions are under Advanced.
 
 - A goal's waiting tasks are held by the dispatcher while the goal is paused or stopped, and by its own live-task and task-count limits.
 - A task left `interrupted` by a restart waits for you: Freebuff tasks continue the same chat on their own, everything else needs a click. Nothing restarts silently.
