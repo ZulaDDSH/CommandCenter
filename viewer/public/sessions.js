@@ -73,12 +73,12 @@ PAGES.sessions=async el=>{
  const my=++gen;
  let list;try{const r=await fetch('/sessions');if(!r.ok)throw 0;list=await r.json()}catch(e){list=null}
  if(my!==gen||!el.isConnected||tab!=='sessions')return;
- const reload=()=>PAGES.sessions(el),live=(list||[]).filter(s=>s.id&&!s.archived),n=k=>live.filter(s=>(s.live||'unknown')===k).length,top=el.scrollTop;
+ const reload=()=>PAGES.sessions(el),live=(list||[]).filter(s=>s.id&&!s.archived),n=k=>live.filter(s=>(s.live||'unknown')===k).length,top=el.scrollTop,left=el.querySelector('.sess-all')?.scrollLeft||0;
  window.sessReload=reload;
  const fe=document.activeElement,fr=el.contains(fe)&&fe.closest('.srow'),fk=fr&&[fr.dataset.p,fr.dataset.id,fe.dataset.a];
  el.innerHTML='<div class="pg sess-all"><h2>Sessions</h2><div class="pg-hint">'+(list===null?'Could not load sessions.':n('running')+' running (verified), '+n('recent')+' with recent activity, '+n('unknown')+' unknown, '+n('finished')+' finished. Running means a live process was found and it wrote in the last 2 minutes. Recent activity only means a file changed. Unknown means no sign either way. Each tool lists at most its latest 15 sessions. These are history read from disk: this screen cannot stop, pause or message a session. Click a row to read it.')+'</div>'+(list&&list.length?window.sessTable(list):list?'<div class="empty">No sessions found.</div>':'')+'</div>';
  el.firstChild.onclick=e=>window.sessClick(e,list||[],reload);el.firstChild.onkeydown=e=>{if(e.key==='Enter'&&e.target.classList.contains('srow'))e.target.click()};
- el.scrollTop=top;
+ el.scrollTop=top;el.firstChild.scrollLeft=left;
  if(fk){const t=el.querySelector('.srow[data-p="'+fk[0]+'"][data-id="'+fk[1]+'"]');(fk[2]?t?.querySelector('[data-a="'+fk[2]+'"]'):t)?.focus()}};
 setInterval(()=>{if(tab==='sessions')PAGES.sessions($('prov'))},10000);
 })();

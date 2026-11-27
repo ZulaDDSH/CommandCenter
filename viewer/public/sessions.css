@@ -24,7 +24,8 @@
 .srow.arch{opacity:.6}.sarch{margin-top:10px}.sarch .pill{padding:3px 10px;font-size:12px}
 .vact{display:flex;gap:6px;flex:none}.vact[hidden]{display:none}.vact .pill{padding:3px 10px;font-size:12px}
 @media(max-width:700px){
- .sess-all table.ss th:nth-child(3),.sess-all table.ss td:nth-child(3),.sess-all table.ss th:nth-child(6),.sess-all table.ss td:nth-child(6){display:none}
+ .sess-all table.ss th:nth-child(3),.sess-all table.ss td:nth-child(3){display:none}
+ .sess-all .sact .pill{opacity:1}
  .sess-all table.ss td.st{width:auto;max-width:210px}
  #view{align-items:flex-end}
  .vbox{width:100vw;height:94vh;border-radius:var(--r3) var(--r3) 0 0}
