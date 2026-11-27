@@ -43,8 +43,8 @@ PAGES.home=async el=>{
   if(tab!=='home')return;
   const tasks=t?.tasks||[],run=tasks.filter(isRun).length,wait=tasks.filter(x=>x.status==='waiting').length,fail=tasks.filter(x=>x.status==='failed').length;
   const today=new Date().toDateString(),doneToday=tasks.filter(x=>x.status==='done'&&new Date(ts(x.endedAt)).toDateString()===today).length;
-  const work=(Array.isArray(ss)?ss:[]).filter(s=>s.state==='working'&&!s.archived).sort((a,b)=>ms(b.mtime)-ms(a.mtime));
-  const bits=[];if(run)bits.push(plural(run,'task')+' running');if(wait)bits.push(wait+' waiting');if(work.length)bits.push(plural(work.length,'agent')+' working right now');
+  const work=(Array.isArray(ss)?ss:[]).filter(s=>(s.live==='running'||s.live==='recent')&&!s.archived).sort((a,b)=>ms(b.mtime)-ms(a.mtime));
+  const bits=[];if(run)bits.push(plural(run,'task')+' running');if(wait)bits.push(wait+' waiting');if(work.length)bits.push(plural(work.length,'agent')+' with recent activity');
   const hello=bits.length?bits.join(', '):'All quiet. Nothing is running right now.';
   const per=['freebuff','codex','cursor','opencode','claude','antigravity'].map(p=>[p,work.filter(s=>s.provider===p).length]).filter(x=>x[1]);
   const att=tasks.filter(x=>x.note&&(x.status==='failed'||x.status==='waiting'||isRun(x))).sort((a,b)=>(ts(b.endedAt)||ts(b.createdAt))-(ts(a.endedAt)||ts(a.createdAt)));
@@ -52,12 +52,12 @@ PAGES.home=async el=>{
   const html='<div id="hm-root" class="tk">'+health(t)+'<div class="tk-hello">'+esc(hello)+'</div>'
    +'<div class="cards">'
    +card('Tasks',String(run),'running',[wait+' waiting in line',doneToday+' finished today',fail+' failed'])
-   +card('Agents working now',String(work.length),'',per.length?per.map(x=>esc(P[x[0]])+': '+x[1]):['Nobody is working.'])
+   +card('Agents with recent activity',String(work.length),'',per.length?per.map(x=>esc(P[x[0]])+': '+x[1]):['No recent activity.'])
    +routeCard(r)+hoursCard(u)+'</div>'
    +(att.length?'<div class="tk-h">Needs a look</div>'+att.slice(0,5).map(x=>'<div class="tk-att"><div>'+dot(x.status)+'<b>'+esc(x.title)+'</b> <span class="m">'+esc(x.status)+(x.ranOn?' on '+esc(P[x.ranOn]||x.ranOn):'')+'</span></div><div class="tk-note">'+esc(x.note)+'</div><div>'+(x.status==='failed'&&!x.parent?btn('retry','Retry',x.id)+' ':'')+btn('tab','Open Director','',' data-t="director"')+'</div></div>').join('')+(att.length>5?'<div class="m">'+(att.length-5)+' more on the Director tab.</div>':''):'')
    +(tasks.some(isRun)?'<div class="tk-h">Tasks running</div><div class="tk-rows">'+tasks.filter(isRun).slice(0,20).map(x=>'<div class="tk-row" data-tk="tab" data-t="director">'+badge(x.ranOn||x.provider)+'<span class="tk-rt">'+(x.role==='orchestrator'?'Director: ':'')+esc(x.title)+'</span><span class="m">'+esc(x.model||x.modelPref||'')+'</span><span class="m">'+(x.expiresAt?'<b>'+esc(left(x.expiresAt))+' left</b>':x.ranOn==='freebuff'?'no hour yet':'')+'</span></div>').join('')+'</div>':'')
-   +'<div class="tk-h">Working right now</div>'
-   +(work.length?'<div class="tk-rows">'+work.slice(0,40).map(s=>'<div class="tk-row" data-tk="open" data-p="'+esc(s.provider)+'" data-id="'+esc(s.id)+'">'+badge(s.provider)+'<span class="tk-rt">'+esc(String(s.title||s.id).slice(0,90))+'</span><span class="m tk-rf" title="'+esc(s.cwd||'')+'">'+esc(short(s.cwd))+'</span><span class="m">'+(ms(s.mtime)?ago(ms(s.mtime)):'')+'</span></div>').join('')+'</div>':'<div class="tk-empty">No agent is working right now.</div>')
+   +'<div class="tk-h">Recent activity (last 2 minutes)</div>'
+   +(work.length?'<div class="tk-rows">'+work.slice(0,40).map(s=>'<div class="tk-row" data-tk="open" data-p="'+esc(s.provider)+'" data-id="'+esc(s.id)+'">'+badge(s.provider)+'<span class="tk-rt">'+esc(String(s.title||s.id).slice(0,90))+'</span><span class="m tk-rf" title="'+esc(s.cwd||'')+'">'+esc(short(s.cwd))+'</span><span class="m">'+(ms(s.mtime)?ago(ms(s.mtime)):'')+'</span></div>').join('')+'</div>':'<div class="tk-empty">No agent has written in the last 2 minutes.</div>')
    +'<div class="tk-h">Latest board notes '+btn('tab','Open Director','',' data-t="director"')+'</div>'
    +(notes.length?notes.map(n=>'<div class="note"><div class="m"><b>'+esc(n.from)+'</b> · '+when(n.at)+'</div><div class="t">'+md(String(n.text).slice(0,300)+(String(n.text).length>300?'…':''))+'</div></div>').join(''):'<div class="tk-empty">No notes yet.</div>')
    +'</div>';

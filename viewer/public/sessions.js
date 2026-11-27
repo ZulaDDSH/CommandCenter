@@ -1,6 +1,7 @@
 (()=>{
-const LABEL={working:'working',idle:'idle',done:'finished'},DOT={working:'live',idle:'idle',done:'done'};
-const dot=s=>'<span class="sdot '+(DOT[s]||'done')+'"></span>'+(LABEL[s]||esc(s));
+const LABEL={running:'running (verified)',recent:'recent activity',unknown:'unknown',finished:'finished'},DOT={running:'live',recent:'idle',unknown:'done',finished:'done'};
+const WHY={running:'Its process is alive and it wrote in the last 2 minutes.',recent:'It wrote in the last 2 minutes. The panel cannot confirm a process is running it.',unknown:'No recent writes and no completion mark. It may be running, paused or closed.',finished:'The transcript shows this run completed.'};
+const dot=(s,why)=>'<span class="sdot '+(DOT[s]||'done')+'" title="'+esc(why||WHY[s]||'')+'"></span>'+(LABEL[s]||'unknown');
 const last2=p=>String(p||'').split(/[\\/]/).filter(Boolean).slice(-2).join('/')||'?';
 const stamp=t=>{const d=new Date(t);return isNaN(d)?'?':d.toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})};
 const recent=ms=>ms?(Date.now()-ms<864e5?ago(ms):stamp(ms)):'?';
@@ -15,7 +16,7 @@ function steps(x){const key=x.provider+':'+x.id+':';
 
 function render(x){cur.x=x;$('vact').hidden=false;$('varc').textContent=x.archived?'Unarchive':'Archive';const f=$('vfeed'),atBottom=f.scrollHeight-f.scrollTop-f.clientHeight<80,top=f.scrollTop;
  $('vtitle').textContent=x.title||x.id;
- $('vmeta').innerHTML=[esc(x.provider),x.model&&esc(x.model),'<span title="'+esc(x.cwd)+'">'+esc(last2(x.cwd))+'</span>',dot(x.state),'last activity '+esc(recent(x.mtime))].filter(Boolean).join(' · ');
+ $('vmeta').innerHTML=[esc(x.provider),x.model&&esc(x.model),'<span title="'+esc(x.cwd)+'">'+esc(last2(x.cwd))+'</span>',dot(x.live,x.liveWhy),'history read from disk, the panel cannot stop or message it','last activity '+esc(recent(x.mtime))].filter(Boolean).join(' · ');
  f.innerHTML=steps(x);
  f.scrollTop=($('vfollow').checked&&atBottom)?f.scrollHeight:top}
 
@@ -27,7 +28,7 @@ async function load(first){const t=token;let raw,ok;
   if(first){$('vtitle').textContent='Session not found';$('vmeta').textContent='';$('vfeed').innerHTML='<div class="empty">'+esc(x?.error||'Could not load this session. It may have been removed.')+'</div>'}
   return}
  if(first||raw!==lastRaw){lastRaw=raw;render(x);if(first)$('vfeed').scrollTop=$('vfeed').scrollHeight}
- if(x.state==='working')timer=setTimeout(()=>load(false),4000)}
+ if(x.live==='running'||x.live==='recent')timer=setTimeout(()=>load(false),4000)}
 
 function close(){token++;clearTimeout(timer);cur=null;$('view').hidden=true}
 
@@ -46,12 +47,12 @@ window.sessAct=async(provider,id,a,title)=>{
 const vact=async a=>{const x=cur?.x;if(!x||!await window.sessAct(cur.p,cur.id,a,x.title||x.id))return;
  window.sessReload?.();if(a==='delete')return close();clearTimeout(timer);load(false)};
 $('vren').onclick=()=>vact('rename');$('varc').onclick=()=>vact(cur?.x?.archived?'unarchive':'archive');$('vdel').onclick=()=>vact('delete');
-const AGENT={freebuff:'Freebuff',codex:'Codex',cursor:'Cursor',opencode:'OpenCode',claude:'Claude'},RANK={working:0,idle:1,done:2};
+const AGENT={freebuff:'Freebuff',codex:'Codex',cursor:'Cursor',opencode:'OpenCode',claude:'Claude'},RANK={running:0,recent:1,unknown:2,finished:3};
 window.sessTable=list=>{
- const arch=list.filter(s=>s.id&&s.archived),rows=list.filter(s=>s.id&&(!s.archived||showArch)).sort((a,b)=>(RANK[a.state]??2)-(RANK[b.state]??2)||b.mtime-a.mtime);
- return list.filter(s=>!s.id).map(s=>'<div class="tk-warn">'+esc(s.title)+'</div>').join('')
+ const arch=list.filter(s=>s.id&&s.archived),rows=list.filter(s=>s.id&&(!s.archived||showArch)).sort((a,b)=>(RANK[a.live]??2)-(RANK[b.live]??2)||b.mtime-a.mtime);
+ return list.filter(s=>!s.id).map(s=>'<div class="'+(s.note?'pg-hint':'tk-warn')+'">'+esc(s.title)+'</div>').join('')
   +'<table class="ss"><thead><tr><th>Agent</th><th>Doing</th><th>Folder</th><th>Last activity</th><th>State</th><th></th></tr></thead><tbody>'
-  +rows.map(s=>'<tr tabindex="0" class="srow'+(s.archived?' arch':'')+'" data-p="'+esc(s.provider)+'" data-id="'+esc(s.id)+'"><td><span class="tk-badge p-'+esc(s.provider)+'">'+esc(AGENT[s.provider]||s.provider)+'</span></td><td class="st">'+esc(s.title||s.id)+(s.model?'<div class="m">'+esc(s.model)+'</div>':'')+'</td><td title="'+esc(s.cwd)+'">'+esc(last2(s.cwd))+'</td><td>'+esc(recent(s.mtime))+'</td><td class="sst">'+dot(s.state)+'</td><td class="sact"><button class="pill" data-a="rename">Rename</button><button class="pill" data-a="'+(s.archived?'unarchive':'archive')+'">'+(s.archived?'Unarchive':'Archive')+'</button><button class="pill" data-a="delete">Delete</button></td></tr>').join('')+'</tbody></table>'
+  +rows.map(s=>'<tr tabindex="0" class="srow'+(s.archived?' arch':'')+'" data-p="'+esc(s.provider)+'" data-id="'+esc(s.id)+'"><td><span class="tk-badge p-'+esc(s.provider)+'">'+esc(AGENT[s.provider]||s.provider)+'</span></td><td class="st">'+esc(s.title||s.id)+(s.model?'<div class="m">'+esc(s.model)+'</div>':'')+'</td><td title="'+esc(s.cwd)+'">'+esc(last2(s.cwd))+'</td><td>'+esc(recent(s.mtime))+'</td><td class="sst">'+dot(s.live,s.liveWhy)+'</td><td class="sact"><button class="pill" data-a="rename">Rename</button><button class="pill" data-a="'+(s.archived?'unarchive':'archive')+'">'+(s.archived?'Unarchive':'Archive')+'</button><button class="pill" data-a="delete">Delete</button></td></tr>').join('')+'</tbody></table>'
   +(arch.length?'<div class="sarch"><button class="pill" data-tog="1">'+(showArch?'Hide ':'Show ')+arch.length+' archived</button></div>':'')};
 window.sessClick=(e,list,reload)=>{
  if(e.target.closest('[data-tog]')){showArch=!showArch;reload();return}
@@ -72,10 +73,10 @@ PAGES.sessions=async el=>{
  const my=++gen;
  let list;try{const r=await fetch('/sessions');if(!r.ok)throw 0;list=await r.json()}catch(e){list=null}
  if(my!==gen||!el.isConnected||tab!=='sessions')return;
- const reload=()=>PAGES.sessions(el),live=(list||[]).filter(s=>s.id&&!s.archived),n=k=>live.filter(s=>s.state===k).length,top=el.scrollTop;
+ const reload=()=>PAGES.sessions(el),live=(list||[]).filter(s=>s.id&&!s.archived),n=k=>live.filter(s=>(s.live||'unknown')===k).length,top=el.scrollTop;
  window.sessReload=reload;
  const fe=document.activeElement,fr=el.contains(fe)&&fe.closest('.srow'),fk=fr&&[fr.dataset.p,fr.dataset.id,fe.dataset.a];
- el.innerHTML='<div class="pg sess-all"><h2>Sessions</h2><div class="pg-hint">'+(list===null?'Could not load sessions.':n('working')+' working, '+n('idle')+' idle, '+n('done')+' finished. Click a row to read what that agent did.')+'</div>'+(list&&list.length?window.sessTable(list):list?'<div class="empty">No sessions found.</div>':'')+'</div>';
+ el.innerHTML='<div class="pg sess-all"><h2>Sessions</h2><div class="pg-hint">'+(list===null?'Could not load sessions.':n('running')+' running (verified), '+n('recent')+' with recent activity, '+n('unknown')+' unknown, '+n('finished')+' finished. Running means a live process was found and it wrote in the last 2 minutes. Recent activity only means a file changed. Unknown means no sign either way. Each tool lists at most its latest 15 sessions. These are history read from disk: this screen cannot stop, pause or message a session. Click a row to read it.')+'</div>'+(list&&list.length?window.sessTable(list):list?'<div class="empty">No sessions found.</div>':'')+'</div>';
  el.firstChild.onclick=e=>window.sessClick(e,list||[],reload);el.firstChild.onkeydown=e=>{if(e.key==='Enter'&&e.target.classList.contains('srow'))e.target.click()};
  el.scrollTop=top;
  if(fk){const t=el.querySelector('.srow[data-p="'+fk[0]+'"][data-id="'+fk[1]+'"]');(fk[2]?t?.querySelector('[data-a="'+fk[2]+'"]'):t)?.focus()}};

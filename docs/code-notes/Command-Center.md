@@ -497,7 +497,7 @@ Replaced "every running task becomes failed". A `running`/`starting` record on l
 
 ## lib/machines.mjs:handshake / verifyHello
 
-Two halves of one protocol. The caller signs `hmac(sha256, secret, "<peer id>.<ms>")` and sends it with its own id; the receiver looks the peer up in `machines.json`, checks the timestamp is within 60 s (replay window), recomputes the signature with `CC_PEER_SECRET` — one variable name on every machine, see `lib/machines.mjs:verifyHello` — and compares with `timingSafeEqual`. The verified id is what the row is keyed by: an unlisted caller is added with `learned: true` and no address, and a row's id is never derived from its name. A peer is `online` in the UI only after a successful answer; a missing secret is `unconfigured` and nothing is sent. `machines.json` never holds the secret. The panel still binds 127.0.0.1, so a peer needs a tunnel the user controls.
+Two halves of one protocol. The caller signs `hmac(sha256, secret, "<peer id>.<ms>.<nonce>.<path>.<name>.<sha256 of body>")` (see `lib/machines.mjs:signRequest`, which replaced the older id-and-time-only form) and sends it with its own id; the receiver looks the peer up in `machines.json`, checks the timestamp is within 60 s and that the nonce was not used before, recomputes the signature with `CC_PEER_SECRET` — one variable name on every machine, see `lib/machines.mjs:verifyHello` — and compares with `timingSafeEqual`. The verified id is what the row is keyed by: an unlisted caller is added with `learned: true` and no address, and a row's id is never derived from its name. A peer is `online` in the UI only after a successful answer; a missing secret is `unconfigured` and nothing is sent. `machines.json` never holds the secret. The panel still binds 127.0.0.1, so a peer needs a tunnel the user controls.
 
 ## lib/github.mjs:mergeBlockers
 
@@ -638,3 +638,87 @@ Tabs are grouped (work, archive and system) with `.sep` spacers that are not `<a
 ## viewer/public/app.css:button.pill
 
 The primary action is paper-white on ink (`.tk-act .pill`, `.pill.primary`); ordinary buttons are outlined. Labels above fields are sentence case, not tracked capitals.
+
+## lib/director.mjs:gate
+
+The goal limits count slots, not queue length. `maxLive` is compared with the OTHER workers of the goal that are `starting` or `running`; a `waiting` task holds no slot, and the task asking to start is never counted against itself. The old rule counted every live worker including the asker and the queue, so with `maxLive=1` the first worker saw itself and could wait for ever. `maxTasks` counts the other workers that already started (`startedAt` set), so tasks that are only queued do not use the budget. The orchestrator is exempt from `maxLive` and from `maxTasks`. `snapshot` reports the same numbers (`usedLive`, `usedTasks`) so the panel and the gate agree. `tools/limits-check.mjs` pins the boundaries for limits of 1 and 4 and runs in CI.
+
+## lib/director.mjs:steerMode
+
+Decides what a reply in the Director chat can really do, from the root director task alone. `live`: the director is a running Freebuff chat, so the text can be typed into it. `amend`: it is queued and has not read its brief yet, so the text is added to the brief. `handoff`: it is a running one-shot run (`codex exec`, `claude -p`, `opencode run`, `cursor -p`, `agy -p`); those read their prompt once at start and have stdin closed, so nothing can reach them. `new-run`: the director ended, so a new director run starts. The route re-checks `live` against the real CLI table before it sends, and falls back to `handoff` when the chat has exited. The snapshot reports the same value as `steering` so the composer can say beforehand what a reply will do.
+
+## lib/director.mjs:handoffText
+
+The brief for a director run that replaces or follows an earlier one: the goal's original text, the earlier steering notes, the id and report path of the earlier director, and the new note. A reply therefore never replaces the goal with only the latest sentence.
+
+## lib/director.mjs:gate
+
+A task with `afterTask` stays waiting while that task is live (`waiting`, `starting`, `running`). It is how a queued hand-off director run avoids editing the same folder as the director it follows. It starts when the earlier task ends in any state, so a failed or cancelled director does not block it for ever.
+
+## lib/routes/director.mjs:/director/goal/:id/steer
+
+The reply is recorded with what happened to it (`delivery`): `sent` (typed into a live Freebuff director, not confirmed), `amended` (added to a director that had not started), `queued` (a new run starts after the running one-shot director ends; the running director has not seen the note), `new-run` (the director had finished) or `failed`. The message to the person says only that. It never says a running worker stopped or changed course, because nothing confirms that. The old route started a separate child task of the running director with only the note, so the original goal was missing and the reply claimed the new task carried it.
+
+## lib/tasks.mjs:sendToDirector
+
+Types text into the live Freebuff CLI that runs the task, using the same `send` the dispatcher uses to start a task. Returns `{ ok: false, why }` when the task is not a live Freebuff chat. A sent line is not a confirmation: the CLI may be mid-turn.
+
+## lib/tasks.mjs:amend
+
+Appends text to a task that is still `waiting`, so the brief it reads at start includes it. Refuses once the task has started.
+
+## lib/tasks.mjs:childCall
+
+A `read` task must not change files, so each provider gets the strongest read-only control its CLI has: Codex `-s read-only` (a sandbox), Claude `--permission-mode plan` with no edit tools allowed, Cursor with no `--force` (changes are not applied), OpenCode `--agent plan`, Antigravity `--mode plan`. Antigravity was started with no mode at all, so it ran with whatever permissions the person had saved. Probe on 2026-11-27 in an empty throwaway git folder: `agy -p ... --mode plan`, told to create a file and then told to run `echo hello > probe2.txt`, wrote nothing either time and answered with a plan artifact to approve. That is the CLI's own mode, not an operating-system sandbox, and a read-only Antigravity task may therefore come back as a plan instead of an answer. Freebuff has no such control: it only gets a `[read]` tag and a sentence in the brief.
+
+## lib/tasks.mjs:READ_ENFORCED
+
+The providers whose own CLI enforces read-only. A `read` task is never routed to Freebuff automatically, and a read task given to Freebuff by name is refused in `add` and failed in `tick`, with the reason, rather than run on a promise in the prompt.
+
+## lib/session-meta.mjs:liveOf
+
+The Sessions screen used to call a session "working" when its file changed in the last 2 minutes. That is recent activity, not a running process. `liveOf` returns one of four values: `running` (the panel found a live process id for the session AND it wrote in the last 2 minutes), `recent` (written in the last 2 minutes, process not checked), `finished` (the transcript itself shows the run completed), `unknown` (no recent write and no completion mark; it may be running, paused, or closed). Only Freebuff chats carry a process id today (found from the CLI's log); Codex, Claude, Cursor and OpenCode history is read from files, so those can never be `running`. The older `state` field stays for the delete guard and the archive worker, which are deliberately cautious about anything recently written.
+
+## lib/session-meta.mjs:decorate
+
+Adds `live` and `liveWhy` to every session row. A history row is read-only: the panel did not start it, so it cannot stop, pause or send to it, and the Sessions screen says so.
+
+## viewer/server.mjs:allSessions
+
+Fetches one more row than it shows per provider. When there are more than 15, the list ends with a note row saying older sessions are not listed, so the limit is visible instead of silent.
+
+## lib/machines.mjs:signRequest
+
+The old signature covered only `<peer id>.<timestamp>`. Anyone who captured one signed hello could replay it for 60 seconds against any route, and the body (the capabilities a machine reports) was not covered at all. The signature now covers the peer id, timestamp, a one-use nonce, the request path and a SHA-256 of the exact body text, so a signed hello cannot be reused on `/machine/claim`, cannot carry a changed body, and cannot be sent twice. This is a prerequisite for remote execution, not remote execution: `/machine/claim` still answers 501.
+
+## lib/machines.mjs:verifyHello
+
+Checks the signed request and remembers each nonce for 2 minutes (kept in memory, so a panel restart forgets them; the 60 second timestamp window still bounds a replay across a restart to one minute).
+
+## lib/director.mjs:steerMode (starting)
+
+A Freebuff director that is still `starting` is treated as a hand-off, not `live`: the CLI exists but the task text may not have been delivered yet, so a typed reply could arrive first or be lost. `lib/tasks.mjs:sendToDirector` also only accepts `running`.
+
+## lib/director.mjs:gate (interrupted earlier director)
+
+An `interrupted` director whose orphan process id is still alive may still be editing the folder, so a queued hand-off keeps waiting for it, the same rule `lib/tasks.mjs:resumeInterrupted` uses.
+
+## lib/routes/director.mjs:/director/goal/:id/steer (goal state)
+
+The gate holds every task of a paused goal and refuses stopped or done ones, so a reply to a stopped or done goal is refused with 409 instead of promising a run, and a reply to a paused goal says the run starts when the goal is resumed.
+
+## lib/session-meta.mjs:capRows
+
+Cuts a provider's list to the limit and appends the one visible note row. The list is fetched with a few spare rows because deleted sessions are dropped after fetching.
+
+## lib/machines.mjs:signRequest (name)
+
+The `x-cc-name` header is part of the signature, because verifyHello uses it to match or learn a listed peer by name.
+
+## tools/director-check.mjs:sign
+
+The signed-request cases build the HMAC string by hand with their own `sign()` instead of calling `lib/machines.mjs:signRequest`, so a change to `signRequest` that no longer matches the documented wire format (`peerId.ts.nonce.path.name.sha256(body)`) fails the check instead of passing against itself.
+
+## tools/limits-check.mjs:gate
+
+The limits check is a pure unit run on a throwaway `CC_ROOT`. Its sections cover `maxLive` 1 and 4, the `maxTasks` boundary (only tasks with a `startedAt` use the budget), the budget view, `steerMode`, `handoffText`, the `afterTask` hold (a queued hand-off waits while the earlier director is live and starts once it ends in any state), and the session status rules (`liveOf`: running only with a live process, recent activity is not a running state; `capRows`).

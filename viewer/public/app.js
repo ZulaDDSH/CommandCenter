@@ -67,7 +67,7 @@ async function fbModels(){try{const m=await (await fetch('/usage?p=fbmodels')).j
  $('fbsel').onchange=async e=>{e.target.disabled=true;const r=await fetch('/fb-model?key='+encodeURIComponent(e.target.value),{method:'POST'});if(!r.ok)alert('Could not save the model');fbModels()}}catch(e){}}
 async function spawnInfo(){try{const d=await (await fetch('/spawn-check')).json();
  const R=d.roles||{};$('spawn').innerHTML='<div class="hl">Next freebuff task</div><div class="hm nt">'+(d.spawn?'Starts a new CLI':d.target?'Goes to CLI '+esc(d.target):'Waits')+' · '+esc(d.clis.length)+' / '+esc(d.max)+' CLIs</div><details class="more"'+isOpen('spawn')+'><summary>Details</summary><div class="hm">'+esc(d.why||'')+'<br>'
-  +d.clis.map(c=>c.pending?'starting'+(c.model?' · '+esc(c.model):'')+' · no hour yet':'pid '+esc(c.pid)+(c.model?' · '+esc(c.model):'')+' · '+esc(c.minsLeft)+' min left · '+(c.working.length?'working: '+esc(c.working.join(', ')):'idle')+(c.queued.length?' · queued: '+esc(c.queued.join(', ')):'')).join('<br>')
+  +d.clis.map(c=>c.pending?'starting'+(c.model?' · '+esc(c.model):'')+' · no hour yet':'pid '+esc(c.pid)+(c.model?' · '+esc(c.model):'')+' · '+esc(c.minsLeft)+' min left · '+(c.working.length?'recent activity: '+esc(c.working.join(', ')):'idle')+(c.queued.length?' · queued: '+esc(c.queued.join(', ')):'')).join('<br>')
   +(d.codeLeft!=null?(d.clis.length?'<br>':'')+esc(d.codeLeft)+' h of '+esc(R.code||'coding')+' work left':'')+'</div></details>'}catch(e){}}
 fetch('/setup').then(r=>r.json()).then(s=>{if(!s.config.setupDone&&!localStorage.getItem('cc-tab'))setTab('setup')}).catch(()=>{});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-auth],[data-refresh]');if(!b)return;

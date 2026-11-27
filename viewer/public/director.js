@@ -104,7 +104,7 @@ function current(){
 function bubble(m){
  const you=m.who==='you',live=!you&&LIVE.includes(m.status);
  const txt=you?m.text:live?'Working… planning, handing out tasks and checking their reports.':(m.text||(m.status==='done'?'Finished without a written report.':'Stopped.'));
- return '<div class="dr-bub '+(you?'dr-you':'dr-dir')+(live?' dr-live':'')+'"><div class="m">'+(you?'You':'Director')+' · '+at_(m.at)+(!you&&!live&&m.status&&m.status!=='done'?' · '+esc(m.status):'')+'</div><div class="dr-bt">'+esc(txt)+'</div></div>';
+ return '<div class="dr-bub '+(you?'dr-you':'dr-dir')+(live?' dr-live':'')+'"><div class="m">'+(you?'You':'Director')+' · '+at_(m.at)+(!you&&!live&&m.status&&m.status!=='done'?' · '+esc(m.status):'')+'</div><div class="dr-bt">'+esc(txt)+'</div>'+(you&&m.delivery?'<div class="m dr-dlv">'+esc(m.delivery)+'</div>':'')+'</div>';
 }
 
 function needBtn(n){
@@ -133,7 +133,7 @@ function build(){
  h+='<details id="dr-set" class="dr-ev"'+(setOpen?' open':'')+'><summary>Director and models: '+esc(o.provider?o.provider+(o.model?' '+o.model:'')+(o.effort?' ('+o.effort+')':''):'no director chosen')+', '+(tm.length?tm.length+' model(s) ticked':'any model')+'</summary><div class="dr-form">'+picker()+'</div><div class="dr-form"><div class="hl">Models the director may use</div>'+team()+'</div><div class="dr-form">'+workers()+'</div></details>';
  h+='<div class="dr-act"><label>Chat <select id="dr-chat"><option value="new"'+(g?'':' selected')+'>New chat</option>'+gs.map(x=>'<option value="'+esc(x.id)+'"'+(g&&x.id===g.id?' selected':'')+'>'+esc(x.title.slice(0,50))+' · '+when(x.updatedAt)+'</option>').join('')+'</select></label>'+(g?pill(g.stageLabel,'stage-'+g.stage):'')+'</div>'+status(g);
  h+='<div id="dr-thread">'+(g&&g.thread&&g.thread.length?g.thread.map(bubble).join(''):'<div class="tk-empty">Nothing here yet. Tell the director what you want done.</div>')+'</div>';
- h+='<form id="dr-form" class="dr-form dr-comp"><textarea id="dr-text" rows="3" placeholder="'+(g?'Reply to the director…':'Tell the director what you want done…')+'"></textarea><div class="dr-act"><button class="pill" id="dr-go" type="submit">Send</button><span id="dr-msg" class="m">Enter sends, Shift+Enter adds a line.</span></div></form>';
+ h+='<form id="dr-form" class="dr-form dr-comp"><textarea id="dr-text" rows="3" placeholder="'+(g?'Reply to the director…':'Tell the director what you want done…')+'"></textarea><div class="dr-act"><button class="pill" id="dr-go" type="submit">Send</button><span id="dr-msg" class="m">'+(g&&g.steering?esc(g.steering.why)+' ':'')+'Enter sends, Shift+Enter adds a line.</span></div></form>';
  if(g){const b=[];
   if(g.controls.canPause)b.push(btn('pause',g.id,'Pause'));
   if(g.controls.canResume)b.push(btn('resume',g.id,'Resume'));
@@ -217,7 +217,7 @@ async function send(){
  $('dr-go').disabled=false;
  if(!r.ok){say('tk-err',(r.body&&r.body.error)||'Could not send it.');return}
  if(!g&&r.body&&r.body.goal)curId=r.body.goal.id;
- x.value='';msg='';err='';stick=true;
+ x.value='';msg=(r.body&&r.body.note)||'';err='';stick=true;
  await load();draw(true)}
 
 async function saveOrch(patch){

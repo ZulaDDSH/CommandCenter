@@ -13,7 +13,7 @@ provider limits in Setup.
 | `POST /director/goal/<id>/pause` | Stop dispatching the goal's waiting tasks. Running work is left alone. |
 | `POST /director/goal/<id>/resume` | Let the goal dispatch again. |
 | `POST /director/goal/<id>/stop` | Cancel the goal's live tasks, keep everything finished. |
-| `POST /director/goal/<id>/steer` | `{text}` Save a note and add it as a task: a child of the live root task, or a fresh root task if the old one finished. |
+| `POST /director/goal/<id>/steer` | `{text}` A reply. Live Freebuff director: typed into its chat (`delivery.mode` `sent`, not confirmed). Director not started yet: added to its brief (`amended`). Running one-shot director (codex, claude, cursor, opencode, antigravity): it cannot take a reply, so a new director run with the goal, earlier notes and this note is queued to start after it ends (`queued`); the running director is not told. Director finished: a new run starts (`new-run`). The answer's `note` says which. |
 | `POST /director/goal/<id>/done` | Mark the goal done without cancelling anything. |
 | `POST /director/task/<id>/resume` | Restart a task left `interrupted` by a panel restart. |
 
@@ -54,7 +54,7 @@ create it, and nothing deletes another owner's worktree.
 | `POST /director/machines/add` | `{name, url}` adds a peer. It also names the environment variable that must hold its secret. |
 | `POST /director/machines/check` | `{id}` makes one signed `POST <url>/machine/hello`. Online only on a real answer. |
 | `POST /director/machines/remove`, `/enable` | Change the local inventory only. |
-| `POST /machine/hello` | The other half: verifies an HMAC signature with `CC_PEER_SECRET` over peer id and timestamp within 60 s, records the caller under the id it signed with (adding it as `learned` if it is not listed), then returns this machine's capabilities. |
+| `POST /machine/hello` | The other half: verifies an HMAC signature with `CC_PEER_SECRET` over peer id, timestamp (within 60 s), a one-use nonce, the request path and a hash of the exact body, records the caller under the id it signed with (adding it as `learned` if it is not listed), then returns this machine's capabilities. |
 
 Pairing is one rule: the same secret in `CC_PEER_SECRET` on both machines, then on the other machine
 `node tools/peer.mjs join --host <this panel's url> --name <the label it has here>`. The secret never
@@ -63,6 +63,22 @@ machine signed with, so no id is derived from a name and there is no variable pe
 `machines.json` holds a label, the panel address and that reported id; a machine that signs in without
 being listed is added with `learned: true` and no address. The panel still listens on 127.0.0.1 only, so
 a peer reaches it through a tunnel you control.
+
+### Remote execution: what exists and what does not
+
+A signed hello proves a machine holds the secret. It does **not** mean the director can run work there.
+`POST /machine/claim` verifies the same signature and then answers 501 `claim-unsupported`; it never starts anything.
+Done: request-bound signatures (path, body, nonce) so a captured hello cannot be replayed or reused on another route.
+Still missing before a task can run on another machine, in order:
+
+1. **Transport.** The panel listens on 127.0.0.1 only. A peer needs a tunnel or reverse proxy you run, over TLS, and the signature is not a substitute for encryption (task text and reports would cross in clear text otherwise).
+2. **Authentication.** One shared secret for every peer means any paired machine can sign as any other. Needs a secret or key per peer, a way to revoke one, and the nonce cache kept on disk (it is memory only today, so a restart forgets it).
+3. **Ownership.** A task needs one owner at a time: the host assigns it, the peer takes a lease with an expiry and heartbeats (the local lease and fencing code in `lib/tasks.mjs` is the model), and results are accepted only from the current lease holder.
+4. **Execution on the peer.** A peer endpoint that accepts a task, makes its own worktree, runs only the providers it reports as installed and signed in, and enforces the same read-only rules as local runs.
+5. **Recovery.** What happens when the peer disappears mid-task (mark `interrupted` when the lease expires, never re-run silently while it might still be editing), and when the host restarts while a peer is working.
+6. **Visibility.** The remote task's output and state must reach the host's Director and Sessions tabs, labelled with the machine, and never shown as local.
+
+Until all six exist, the Director treats other machines as an inventory only.
 
 ## Pull requests
 
