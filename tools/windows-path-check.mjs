@@ -27,7 +27,7 @@ try {
   try {
     process.env.Path = `${first};${second};${old || ''}`;
     const found = which('cc-fake');
-    assert.equal(found.toLowerCase(), two.toLowerCase());
+    assert.equal(fs.realpathSync.native(found).toLowerCase(), fs.realpathSync.native(two).toLowerCase());
     assert.equal(findBin('cc-fake').toLowerCase(), found.toLowerCase());
     assert.ok(binCall('cc-fake', ['hello']).args.join(' ').toLowerCase().includes('cc-fake.cmd'));
     fs.unlinkSync(two);
