@@ -202,3 +202,6 @@ https://github.com/ZulaDDSH/CommandCenter/actions/runs/45948873083
 
 Later rows (retry beside a close): `133 passed, 0 failed` on `windows-latest`, commit `0888a04`,
 https://github.com/ZulaDDSH/CommandCenter/actions/runs/45949738702
+
+Later rows (start beside a close): `134 passed, 0 failed` on `windows-latest`, commit `94099f3`,
+https://github.com/ZulaDDSH/CommandCenter/actions/runs/45952516963

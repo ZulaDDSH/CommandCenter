@@ -523,3 +523,6 @@ were removed so the log has a single writer and no second path that could interl
   driver runtime that CI has no session for. `tick`'s gates and provider selection are not part of it.
 - Next: a Freebuff start race needs a stub driver, not just a stub command; nothing else in the start
   write is unasserted.
+- CI: https://github.com/ZulaDDSH/CommandCenter/actions/runs/45952516963 — success, `134 passed, 0 failed`
+  on `windows-latest` with no provider CLI installed, for commit `94099f3`. The only later change is this
+  line and the same link in `FEATURE-PARITY.md`.
