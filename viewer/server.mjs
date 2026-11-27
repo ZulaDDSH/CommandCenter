@@ -236,7 +236,8 @@ function loadSessions() {
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const staticFile = p => p === '/' ? 'index.html' : /^\/[\w-]+\.(js|css)$/.test(p) && fs.existsSync(path.join(PUBLIC, p.slice(1))) ? p.slice(1) : null;
 const ROUTES = [];
-for (const f of fs.readdirSync(path.join(ROOT, 'lib/routes')).filter(f => f.endsWith('.mjs')).sort()) ROUTES.push((await import(pathToFileURL(path.join(ROOT, 'lib/routes', f)).href)).default);
+const ROUTES_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../lib/routes');
+for (const f of fs.readdirSync(ROUTES_DIR).filter(f => f.endsWith('.mjs')).sort()) ROUTES.push((await import(pathToFileURL(path.join(ROUTES_DIR, f)).href)).default);
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
 const sameOrigin = req => !req.headers.origin || [`http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`].includes(req.headers.origin);
 const send = (res, code, body, type = 'application/json') => { res.writeHead(code, { 'content-type': type }); res.end(typeof body === 'string' ? body : JSON.stringify(body)); };
