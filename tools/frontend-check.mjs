@@ -65,6 +65,7 @@ try {
         await table.waitFor({ state: 'visible' });
         assert.equal(await table.getByText(task.title).count(), 1, 'Finished task must appear in the task table');
         await table.screenshot({ path: `frontend-artifacts/${width}-tasks.png` });
+        await page.screenshot({ path: `frontend-artifacts/${width}-director-tasks.png` });
         const sizes = await table.evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
         if (width === 390) assert.ok(sizes.scroll > sizes.width, 'Task table should scroll inside its panel at narrow widths');
         const panel = await page.locator('#prov').evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
