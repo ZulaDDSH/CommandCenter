@@ -2,10 +2,12 @@
 import readline from 'node:readline';
 import { createApi, format } from './cc-lib.mjs';
 import { runScript } from './run-script.mjs';
+import { explore } from './codegraph.mjs';
 
 const SCRIPT_HELP = `Run a JavaScript async function body that does many reads, searches, edits and Command Center calls in ONE turn; return only the small result you need. Use it instead of several separate tool calls. In scope: read(path,{from,to}), write(path,text), edit(path,old,new) (exact unique match), glob(pattern,{cwd}), grep(regex,{path,glob,max}) -> [{file,line,text}], ls(dir), git(...args), run(cmd,args,{cwd,timeout,input}) -> {code,stdout,stderr}, fetchJson(url) (panel only), panel.tasks(), panel.taskLog(id), panel.addTask({title,prompt,provider,model,cwd,parent}), panel.board(text,from), panel.budget(), console.log, args. Relative paths use cwd. Output over 20000 chars is cut.`;
 
 const TOOLS = [
+  { name: 'cc_codegraph_explore', description: 'Explore the configured main project’s existing CodeGraph index. Results describe that checkout, not a task worktree; verify changed code in the worktree.', inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Symbols, files, or a question about the configured project.' } }, required: ['query'] } },
   { name: 'run_script', description: SCRIPT_HELP, inputSchema: { type: 'object', properties: { code: { type: 'string', description: 'Async function body; use return to give the result.' }, cwd: { type: 'string', description: 'Folder for relative paths (default: server folder).' }, timeout_ms: { type: 'number', description: 'Stop the script after this long (default 60000).' } }, required: ['code'] } },
   { name: 'cc_task_add', description: 'Queue a task in the Command Center. It starts on the best free provider.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, prompt: { type: 'string' }, provider: { type: 'string', enum: ['freebuff', 'codex', 'cursor', 'opencode', 'claude', 'antigravity'] }, model: { type: 'string' }, cwd: { type: 'string' }, parent: { type: 'string' } }, required: ['title', 'prompt'] } },
   { name: 'cc_board_post', description: 'Post a short note on the shared team board. Never post secrets.', inputSchema: { type: 'object', properties: { text: { type: 'string' }, from: { type: 'string' } }, required: ['text'] } },
@@ -13,6 +15,7 @@ const TOOLS = [
 ];
 
 const HANDLERS = {
+  cc_codegraph_explore: async a => ({ ok: true, text: explore(a.query) }),
   run_script: async a => { if (typeof a.code !== 'string') throw new Error('code must be a string'); const r = await runScript(a.code, { cwd: a.cwd || process.cwd(), ...(Number.isFinite(+a.timeout_ms) && +a.timeout_ms > 0 ? { timeout: +a.timeout_ms } : {}) }); return r; },
   cc_task_add: async a => ({ ok: true, text: format(await createApi().panel.addTask(a)) }),
   cc_board_post: async a => ({ ok: true, text: format(await createApi().panel.board(a.text, a.from)) }),
