@@ -7,7 +7,7 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-task-errors-'));
 process.env.CC_ROOT = root;
 try {
   const { DEFAULTS } = await import('../lib/config.mjs');
-  assert.equal(DEFAULTS.models.codex, 'gpt-6.1-terra');
+  assert.equal(DEFAULTS.models.codex, 'gpt-6-sol');
   assert.equal(DEFAULTS.models.opencode, 'opencode/deepseek-v4.1-flash-free');
   fs.writeFileSync(path.join(root, 'config.json'), JSON.stringify({ taskWorktrees: false, reportsDir: path.join(root, 'reports') }));
   const { failureDetail, display, freebuffExitNote, opencodeHasWork, opencodeAttemptMatch, canFallbackOpenCode, add, startForCheck, queueOpenCodeFallback, modelFor, cancel } = await import('../lib/tasks.mjs');
