@@ -34,6 +34,13 @@ const reply = pathname => ({
 const publicDir = path.resolve('viewer/public');
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
+  if (url.pathname === '/codegraph') {
+    const center = { id: 'a', name: 'Caller', kind: 'method', file: 'caller.cs', line: 3 };
+    const target = { id: 'b', name: 'Target', kind: 'method', file: 'target.cs', line: 9, calls: 2 };
+    const body = url.searchParams.has('query') ? { project: '/workspace/project', results: [target, { ...target, id: 'evil', name: 'Unsafe line', line: '<img src=x>' }] }
+      : { project: '/workspace/project', center: url.searchParams.get('id') === 'b' ? target : center, callers: [], callees: [target] };
+    res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(body));
+  }
   if (req.method === 'POST' && url.pathname === '/session/meta') {
     const id = url.searchParams.get('id');
     archiveRequests.push(id);
@@ -102,7 +109,7 @@ try {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
-    const pages = [['home', '#hm-root'], ['director', '#dr-root'], ['sessions', '.session-table-wrap'], ['archive', '.archive'], ['ext', '.ext'], ['guide', '#pg-guide'], ['debug', '#pg-debug'], ['setup', '#pg-setup']];
+    const pages = [['home', '#hm-root'], ['director', '#dr-root'], ['sessions', '.session-table-wrap'], ['graph', '.cg-map'], ['archive', '.archive'], ['ext', '.ext'], ['guide', '#pg-guide'], ['debug', '#pg-debug'], ['setup', '#pg-setup']];
     for (const [index, [tab, selector]] of pages.entries()) {
       if (index) await page.locator('#prov').evaluate(el => { el.scrollTop = el.scrollHeight; });
       await page.locator(`#tabs [data-t="${tab}"]`).click();
@@ -113,6 +120,17 @@ try {
       await page.screenshot({ path: `frontend-artifacts/${width}-${tab}.png` });
       const overflow = await page.locator('#prov').evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
       assert.ok(overflow.scroll <= overflow.width + 1, `${tab} overflows at ${width}px: ${JSON.stringify(overflow)}`);
+      if (tab === 'graph') {
+        await page.locator('.cg-out [data-symbol="b"]').click();
+        await page.locator('.cg-center [data-symbol="b"]').waitFor({ state: 'visible' });
+        await page.locator('#cg-query').fill('Target');
+        await page.locator('.cg-search button[type="submit"]').click();
+        await page.locator('.cg-results [data-symbol="b"]').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('.cg-results img').count(), 0);
+        assert.ok((await page.locator('.cg-results [data-symbol="evil"]').textContent()).includes('<img src=x>'));
+        await page.locator('.cg-results [data-symbol="b"]').click();
+        await page.locator('.cg-center [data-symbol="b"]').waitFor({ state: 'visible' });
+      }
       if (tab === 'home') {
         assert.equal(await page.locator('.home-metrics,.home-panel').count(), 0);
         const trigger = page.getByRole('button', { name: 'Model usage' });
