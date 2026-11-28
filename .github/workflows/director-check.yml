@@ -40,7 +40,7 @@ jobs:
 
       - name: Keep the temp state when a check fails
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: director-check-state
           path: ${{ runner.temp }}/cc-director-check-*
