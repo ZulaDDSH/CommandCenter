@@ -34,6 +34,10 @@ const reply = pathname => ({
 const publicDir = path.resolve('viewer/public');
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
+  if (url.pathname === '/codegraph/overview') {
+    const body = { project: '/workspace/project', nodes: [{ id: 'folder:src', name: 'src', path: 'src', kind: 'folder', symbols: 3, internal: 1 }, { id: 'file:app.js', name: 'app.js', path: 'app.js', kind: 'file', symbols: 1, internal: 0 }], links: [{ source: 'folder:src', target: 'file:app.js', kind: 'calls', count: 2 }] };
+    res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(body));
+  }
   if (url.pathname === '/codegraph') {
     const center = { id: 'a', name: 'Caller', kind: 'method', file: 'caller.cs', line: 3 };
     const target = { id: 'b', name: 'Target', kind: 'method', file: 'target.cs', line: 9, calls: 2 };
@@ -109,7 +113,7 @@ try {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
-    const pages = [['home', '#hm-root'], ['director', '#dr-root'], ['sessions', '.session-table-wrap'], ['graph', '.cg-map'], ['archive', '.archive'], ['ext', '.ext'], ['guide', '#pg-guide'], ['debug', '#pg-debug'], ['setup', '#pg-setup']];
+    const pages = [['home', '#hm-root'], ['director', '#dr-root'], ['sessions', '.session-table-wrap'], ['graph', '.cg-page'], ['archive', '.archive'], ['ext', '.ext'], ['guide', '#pg-guide'], ['debug', '#pg-debug'], ['setup', '#pg-setup']];
     for (const [index, [tab, selector]] of pages.entries()) {
       if (index) await page.locator('#prov').evaluate(el => { el.scrollTop = el.scrollHeight; });
       await page.locator(`#tabs [data-t="${tab}"]`).click();
@@ -121,8 +125,12 @@ try {
       const overflow = await page.locator('#prov').evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
       assert.ok(overflow.scroll <= overflow.width + 1, `${tab} overflows at ${width}px: ${JSON.stringify(overflow)}`);
       if (tab === 'graph') {
-        await page.locator('.cg-out [data-symbol="b"]').click();
-        await page.locator('.cg-center [data-symbol="b"]').waitFor({ state: 'visible' });
+        await page.locator('#cg-project').fill('/workspace/project');
+        await page.locator('.cg-project-form button[type="submit"]').click();
+        await page.locator('.cg-overview').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('.cg-item').count(), 2);
+        await page.locator('[data-graph-id="folder:src"]').click();
+        await page.getByText('src', { exact: true }).first().waitFor({ state: 'visible' });
         await page.locator('#cg-query').fill('Target');
         await page.locator('.cg-search button[type="submit"]').click();
         await page.locator('.cg-results [data-symbol="b"]').waitFor({ state: 'visible' });
