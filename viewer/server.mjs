@@ -6,7 +6,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { all as providerUsage } from '../usage/providers.mjs';
 import { pick as route } from '../route.mjs';
-import { config, ROOT } from '../lib/config.mjs';
+import { config, saveConfig, ROOT } from '../lib/config.mjs';
+import { createAutoDispatcher, autoDispatchRoute } from '../lib/pr-auto-dispatch.mjs';
 import { rawLists as sessionLists, details as sessionDetails } from '../lib/sessions.mjs';
 import { capRows, decorate, decorateOne, enrichSession, freebuffEnded, metaFor } from '../lib/session-meta.mjs';
 import { sessionOrigin, sessionTaskResolver } from '../lib/session-origin.mjs';
@@ -256,6 +257,9 @@ const readBody = (req, max) => new Promise((ok, fail) => {
 const openTerminal = (title, cmd) => { const c = spawn('cmd.exe', ['/c', `start "${title}" cmd /k ${cmd}`], { windowsVerbatimArguments: true, detached: true, stdio: 'ignore' }); c.on('error', e => console.error(`terminal: ${e.message}`)); c.unref(); };
 process.on('uncaughtException', e => console.error(`uncaught: ${e.stack ?? e}`));
 
+const autoDispatch = createAutoDispatcher({ tasks, getConfig: config, canRun: () => tasks.holdsLock(), boardFile: BOARD });
+const autoDispatchHandler = autoDispatchRoute({ dispatcher: autoDispatch, getConfig: config, saveConfig, readBody, send });
+
 const SESS_LIMIT = 50;
 let sessCache = { at: 0, body: '[]' };
 function allSessions() {
@@ -361,6 +365,7 @@ http.createServer(async (req, res) => {
     if (sf) return send(res, 200, fs.readFileSync(path.join(PUBLIC, sf), 'utf8'), TYPES[path.extname(sf)]);
     const ctx = { req, res, u, q, send, readBody, openTerminal, loadSessions, worktree, cachedUsage, json, allModels, clearSessions: () => { sessCache.at = 0; } };
     for (const r of ROUTES) if (await r(ctx)) return;
+    if (await autoDispatchHandler(ctx)) return;
     if (u.pathname === '/api') {
       const meta = metaFor();
       return send(res, 200, loadSessions().filter(s => !meta('freebuff', s.slug).deleted).map(s => { const v = meta('freebuff', s.slug); const idle = !s.expiresAt && Date.now() - s.mtime > 72e5; return { ...s, hourOver: s.hourOver && !idle, label: v.name ?? '', hidden: !!v.archived || idle }; }));
@@ -472,3 +477,5 @@ http.createServer(async (req, res) => {
 
 tasks.init({ spawnDecision, route: () => json(cachedUsage('route')), usage: n => json(cachedUsage(n)), models: () => allModels() });
 if (!process.env.CC_NO_DISPATCH) tasks.startDispatcher();
+autoDispatch.sync();
+process.on('exit', autoDispatch.stop);

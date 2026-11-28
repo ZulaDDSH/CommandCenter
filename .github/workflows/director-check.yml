@@ -29,6 +29,9 @@ jobs:
       - name: Goal limits (maxLive and maxTasks boundaries)
         run: node tools/limits-check.mjs
 
+      - name: PR queue auto-dispatcher (filtering, locks, slots, routes)
+        run: node tools/pr-auto-dispatch-check.mjs
+
       - name: Parse checks and the isolated boot-and-slice check
         run: node tools/director-check.mjs
 

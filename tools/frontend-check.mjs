@@ -16,13 +16,14 @@ const session = { id: 'example-session', provider: 'codex', title: 'Example sess
 const sessions = [session, { ...session, id: 'auto-done-0', title: 'Auto archived session', live: 'finished', archived: true, autoArchived: true, mtime: now - 60000 }, ...Array.from({ length: 26 }, (_, i) => ({ ...session, id: `finished-${i}`, title: `Finished session ${i}`, live: 'finished', mtime: now - i - 1000 }))];
 const archivedFixture = new Set(), archiveRequests = [];
 const pullRequest = { number: 12, title: 'A pull request with a descriptive title', url: 'https://example.com/pr/12', head: 'example-branch', headSha: '1234567', headShaFull: '123456789', evidence: { ci: 'passing', review: 'approved' }, ci: { state: 'passing', pass: 1, fail: 0, pending: 0 }, updatedAt: stamp };
+let autoDispatch = { enabled: false, queueCount: 2, activeCount: 3, escalatedCount: 0, lastPollAt: stamp, lastError: null, queue: [], tracked: {} };
 let orch = { orchestrator: { mode: 'orchestrated', provider: 'codex' }, team: [], workerModels: {}, efforts: { codex: ['low', 'high'] } };
 let teamItems = [{ id: 'b1', kind: 'board', at: stamp, from: 'director', to: 'team', provider: 'director', taskId: 'running-task', text: 'Wave check-in sent to team.', sessionRef: { provider: 'codex', id: 'example-session' } }, { id: 'r1', kind: 'report', at: stamp, from: 'codex-running-task', to: 'director', provider: 'codex', taskId: 'running-task', title: 'Running task example', status: 'running', text: 'Working on task.', sessionRef: { provider: 'codex', id: 'example-session' } }];
 const reply = pathname => ({
   '/api': [], '/setup': setup, '/setup/folders': { repos: [] }, '/models': { codex: [{ id: 'example-model', name: 'Example Model' }] }, '/board': [],
   '/tasks': { tasks: [task, runningTask], dispatcher: { lastTick: now } },
   '/director': { goals: [], needsYou: [], dispatcher: { lastTick: now }, config: {}, machines: null, github: { repo: 'example/repo', at: stamp, prs: [pullRequest] } },
-  '/orch': orch,
+  '/orch': orch, '/auto-dispatch': autoDispatch,
   '/budget': { providers: { freebuff: { enabled: true, hoursLeft: '12:00', models: [{ id: 'fb-example', name: 'Example Freebuff', workHoursLeft: 6 }] }, codex: { enabled: true, installed: true, running: 0, max: 2, windows: [{ minutes: 10080, usedPercent: 45, stale: false }] }, cursor: { enabled: true }, opencode: { enabled: true, windows: [{ name: 'rolling', usedPercent: 30 }] }, claude: { enabled: true, windows: [{ label: 'Weekly, Opus', usedPercent: 25 }] } } },
   '/sessions': sessions.map(s => ({ ...s, archived: Boolean(s.archived || archivedFixture.has(s.id)) })), '/session': { ...session, steps: [{ k: 'text', text: 'A long message. '.repeat(60) }, { k: 'tool', name: 'Read', input: 'example input', output: 'example output' }, { k: 'tool', name: 'Shell', input: 'example command', output: 'command output' }] },
   '/archive/sessions': [{ ...session, archived: true }], '/ext/list': { files: [], stash: { ok: true }, rows: [{ section: 'hooks', id: 'example-hook', rev: '1', on: true, name: 'Example hook', app: 'Codex', what: 'Runs before a tool starts.', source: 'Example settings', path: '/workspace/settings' }] },
@@ -49,6 +50,16 @@ const server = http.createServer((req, res) => {
       else { if (body.providers) Object.assign(config.providers, body.providers); if (body.maxParallel) Object.assign(config.maxParallel, body.maxParallel); }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(url.pathname === '/orch/config' ? orch : setup));
+    });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/auto-dispatch') {
+    let raw = '';
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      autoDispatch = { ...autoDispatch, enabled: JSON.parse(raw).enabled === true };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(autoDispatch));
     });
     return;
   }
@@ -137,6 +148,20 @@ try {
         assert.equal(await page.evaluate(() => document.activeElement.dataset.tk), 'usage-open');
       }
       if (tab === 'director') {
+        const toggle = page.locator('[data-auto-dispatch-toggle]');
+        const queue = page.locator('[data-auto-dispatch-queue]');
+        await toggle.waitFor({ state: 'visible' });
+        assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
+        assert.equal((await queue.textContent()).trim(), 'Queue: 2');
+        await Promise.all([page.waitForResponse(r => r.url().endsWith('/auto-dispatch') && r.request().method() === 'POST'), toggle.click()]);
+        await page.locator('[data-auto-dispatch-toggle][aria-pressed="true"]').waitFor({ state: 'visible' });
+        assert.equal((await toggle.textContent()).trim(), 'Auto-Dispatch: ON');
+        for (const el of [toggle, queue]) {
+          const box = await el.boundingBox();
+          assert.ok(box.x >= 0 && box.x + box.width <= width, `Auto-dispatch control leaves the viewport at ${width}px: ${JSON.stringify(box)}`);
+        }
+        await page.screenshot({ path: `frontend-artifacts/${width}-director-auto-dispatch.png` });
+        autoDispatch = { ...autoDispatch, enabled: false };
         await page.locator('[data-panel="models"]').click();
         await page.locator('#dr-models option').first().waitFor({ state: 'attached' });
         await page.locator('#dr-model').focus();
