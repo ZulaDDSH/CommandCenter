@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # 22.13 or newer is the floor: lib/sessions.mjs uses node:sqlite.
           node-version: '22'
