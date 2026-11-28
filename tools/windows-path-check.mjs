@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { findOnPath, registryPathFromOutput, which } from '../lib/cli.mjs';
+import { findOnPath, registryPathFromOutput, which, windowsCodexApp } from '../lib/cli.mjs';
 import { findBin, binCall } from '../usage/exec.mjs';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-path-'));
@@ -33,4 +33,13 @@ try {
     fs.unlinkSync(two);
     assert.equal(which('cc-fake'), null);
   } finally { if (old === undefined) delete process.env.Path; else process.env.Path = old; }
+  const pf = path.join(root, 'pf');
+  const older = path.join(pf, 'WindowsApps', 'OpenAI.Codex_26.900.1.0_x64__abc', 'app', 'resources');
+  const newer = path.join(pf, 'WindowsApps', 'OpenAI.Codex_26.1120.5083.0_x64__abc', 'app', 'resources');
+  fs.mkdirSync(older, { recursive: true });
+  fs.mkdirSync(newer, { recursive: true });
+  fs.writeFileSync(path.join(older, 'codex.exe'), '');
+  fs.writeFileSync(path.join(newer, 'codex.exe'), '');
+  assert.equal(windowsCodexApp(pf), path.join(newer, 'codex.exe'));
+  assert.equal(windowsCodexApp(path.join(root, 'missing'), ''), null);
 } finally { fs.rmSync(root, { recursive: true, force: true }); }
