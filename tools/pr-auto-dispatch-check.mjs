@@ -214,7 +214,7 @@ console.log('slot filling');
   const s = await r.d.poll();
   const by = p => r.calls.added.filter(t => t.provider === p);
   must('5 Freebuff newSession slots first', by('freebuff').length === 5 && by('freebuff').every(t => t.newSession && !t.model) && r.calls.added.slice(0, 5).every(t => t.provider === 'freebuff'));
-  must('spill order claude, cursor, opencode, codex', JSON.stringify(r.calls.added.slice(5).map(t => t.provider)) === JSON.stringify(['claude', 'cursor', 'opencode', 'opencode', 'codex', 'codex']), JSON.stringify(r.calls.added.slice(5).map(t => t.provider)));
+  must('medium spill order cursor, opencode, claude, codex', JSON.stringify(r.calls.added.slice(5).map(t => t.provider)) === JSON.stringify(['cursor', 'opencode', 'opencode', 'claude', 'codex', 'codex']), JSON.stringify(r.calls.added.slice(5).map(t => t.provider)));
   must('models: sonnet, composer-2.5, opencode free, gpt-6.1-terra', by('claude')[0].model === 'sonnet' && by('cursor')[0].model === 'composer-2.5' && by('opencode').every(t => t.model === 'opencode/deepseek-v4.1-flash-free') && by('codex').every(t => t.model === 'gpt-6.1-terra'));
   must('gpt-6-astra is never used', !r.calls.added.some(t => /astra/i.test(String(t.model))));
   must('PRs beyond every limit stay queued', s.queueCount === 3 && s.queue.filter(q => q.status === 'no-slot').length === 3, JSON.stringify(s.queue.map(q => q.status)));
@@ -224,7 +224,7 @@ console.log('slot filling');
   const live = Array.from({ length: 4 }, (_, i) => ({ id: `fb${i}`, title: `other ${i}`, status: i % 2 ? 'running' : 'starting', provider: 'freebuff', ranOn: 'freebuff' }));
   const r = rig({ prs: Array.from({ length: 6 }, (_, i) => pr('a/b', i + 1)), tasks: live });
   await r.d.poll();
-  must('live Freebuff tasks count against the 5 slots', r.calls.added.filter(t => t.provider === 'freebuff').length === 1 && r.calls.added[1].provider === 'claude');
+  must('live Freebuff tasks count against the 5 slots', r.calls.added.filter(t => t.provider === 'freebuff').length === 1 && r.calls.added[1].provider === 'cursor');
 }
 {
   const live = Array.from({ length: 28 }, (_, i) => ({ id: `o${i}`, title: `other ${i}`, status: ['running', 'starting', 'waiting', 'queued'][i % 4], provider: 'codex', ranOn: 'codex' }));
@@ -238,7 +238,7 @@ console.log('slot filling');
   must('providers that are turned off are skipped', r.calls.added.map(t => t.provider).join() === 'opencode,opencode');
   const f = rig({ prs: [pr('a/b', 1)], failAdd: ['freebuff'] });
   await f.d.poll();
-  must('a refused Freebuff add spills to the next provider', f.calls.added.length === 1 && f.calls.added[0].provider === 'claude');
+  must('a refused Freebuff add spills to the next provider', f.calls.added.length === 1 && f.calls.added[0].provider === 'cursor');
 }
 {
   const repoDir = path.join(tmp, 'repos', 'b');
@@ -248,6 +248,38 @@ console.log('slot filling');
   const p = rig({ prs: [pr('a/b', 1)], dirs: [path.join(tmp, 'b')] });
   await p.d.poll();
   must('cwd falls back to a folder named after the repo under projectDir', p.calls.added[0]?.cwd === path.join(tmp, 'b'));
+}
+
+console.log('smart model routing');
+{
+  const order = (p, entry = { attempts: 0 }, off = []) => M.routeChain(p, entry, x => !off.includes(x)).map(c => c.provider).join();
+  const light = pr('a/b', 1, { ci: 'success', open_findings: 1, title: 'Update docs' });
+  const medium = pr('a/b', 2, { open_findings: 3 });
+  const heavy = pr('a/b', 3, { ci: 'success', open_findings: 1, title: 'Fix NIF physics crash' });
+  must('light: freebuff, opencode, cursor, claude, codex', order(light) === 'freebuff,opencode,cursor,claude,codex');
+  must('medium: freebuff, cursor, opencode, claude, codex', order(medium) === 'freebuff,cursor,opencode,claude,codex');
+  must('heavy signal: claude, cursor, codex, freebuff, opencode', order(heavy) === 'claude,cursor,codex,freebuff,opencode');
+  must('5+ findings are heavy', M.routeClass(pr('a/b', 4, { open_findings: 5 }), { attempts: 0 }) === 'heavy');
+  must('a retry is heavy even for a light PR', order(light, { attempts: 1 }) === 'claude,cursor,codex,freebuff,opencode');
+  must('heavy signals match branch and ignore substrings', M.routeClass(pr('a/b', 5, { ci: 'success', branch: 'fix/c++-abi', title: 'x' }), { attempts: 0 }) === 'heavy' && M.routeClass(pr('a/b', 6, { ci: 'success', title: 'Fix saved-state label, rigorous docs' }), { attempts: 0 }) === 'light');
+  must('full or disabled primaries fall through to the spill', order(light, { attempts: 0 }, ['freebuff', 'opencode']) === 'cursor,claude,codex' && order(heavy, { attempts: 0 }, ['claude', 'cursor']) === 'codex,freebuff,opencode');
+  must('codex always uses gpt-6.1-terra', M.routeChain(heavy, { attempts: 0 }, () => true).find(c => c.provider === 'codex').model === 'gpt-6.1-terra');
+
+  const h = rig({ prs: [pr('a/b', 1, { title: 'Fix hkx rig' })] });
+  await h.d.poll();
+  must('heavy PR goes to claude sonnet first', h.calls.added.length === 1 && h.calls.added[0].provider === 'claude' && h.calls.added[0].model === 'sonnet');
+  const l = rig({ prs: [pr('a/b', 1, { ci: 'success', open_findings: 1 })] });
+  await l.d.poll();
+  must('light PR goes to freebuff first', l.calls.added[0].provider === 'freebuff');
+  const lf = rig({ prs: [pr('a/b', 1, { ci: 'success', open_findings: 1 })], config: { providers: { freebuff: false, claude: true, cursor: true, opencode: true, codex: true } } });
+  await lf.d.poll();
+  must('light PR with freebuff off goes to opencode free', lf.calls.added[0].provider === 'opencode' && lf.calls.added[0].model === 'opencode/deepseek-v4.1-flash-free');
+  const rt = rig({ prs: [pr('a/b', 1, { ci: 'success', open_findings: 1 })] });
+  await rt.d.poll();
+  rt.rows[0].status = 'failed'; rt.rows[0].endedAt = new Date(rt.clock.t).toISOString();
+  rt.clock.t += 6 * MINUTE;
+  await rt.d.poll();
+  must('attempt 2 escalates a light PR to claude', rt.calls.added.length === 2 && rt.calls.added[1].provider === 'claude');
 }
 
 console.log('routes and timer');
