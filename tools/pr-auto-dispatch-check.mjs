@@ -324,5 +324,33 @@ console.log('real server routes');
   } finally { const closed = new Promise(ok => child.once('close', ok)); child.kill(); await closed; review.close(); }
 }
 
+console.log('live review payload shapes and repoDirs case-insensitivity');
+{
+  const customDir = fs.mkdtempSync(path.join(tmp, 'mapped-repo-'));
+  const r = rig({
+    prs: {
+      pull_requests: [{ repo: 'G-A-R-D-E-N/Garden-Engine', number: 1588, author: 'NomadsReach', ci: 'pending', open_findings: 2, title: 'Fix VATS' }],
+      total: 1,
+    },
+    config: { projectDir: '', autoDispatch: { freebuffSlots: 0, repoDirs: { 'g-a-r-d-e-n/garden-engine': customDir } } },
+    dirs: [customDir],
+  });
+  r.world.findings['G-A-R-D-E-N/Garden-Engine#1588'] = {
+    repo: 'G-A-R-D-E-N/Garden-Engine',
+    number: 1588,
+    models: {
+      sonnet: [
+        { id: 'F5', path: 'opencw/VatsScene.cs', line: 34, severity: 'medium', status: 'resolved', counts_open: false, title: 'Already fixed' },
+        { id: 'F7', path: 'opencw/VatsScene.cs', line: 41, severity: 'medium', status: 'open', counts_open: true, title: 'Centred pick ignores offerable targets' },
+      ],
+    },
+  };
+  const snap = await r.d.poll();
+  const added = r.calls.added[0];
+  must('pull_requests wrapper parses cleanly with zero lastError', snap.lastError === null && r.calls.added.length === 1, snap.lastError ?? '');
+  must('models map flattens open findings using path:line and skips resolved', added && /sonnet F7/.test(added.text) && /opencw\/VatsScene\.cs:41/.test(added.text) && /Centred pick/.test(added.text) && !/Already fixed/.test(added.text), added?.text ?? '');
+  must('repoDirs matches repo case-insensitively and branchless prompt includes gh pr view', added?.cwd === customDir && /gh pr view 1588 --repo G-A-R-D-E-N\/Garden-Engine/.test(added?.text ?? ''), JSON.stringify(added));
+}
+
 if (failed) { console.log(`\n${failed} check(s) failed`); process.exit(1); }
 console.log('\nall pr-auto-dispatch checks passed');
